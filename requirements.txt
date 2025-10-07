@@ -1,5 +1,5 @@
 # Production Dependencies for File-To-Link System V5
-# All versions pinned for stability and security
+# Fixed versions to avoid Rust compilation issues
 
 # FastAPI and ASGI
 fastapi==0.104.1
@@ -11,18 +11,20 @@ motor==3.3.2
 pymongo==4.6.0
 dnspython==2.4.2
 
-# Telegram Bot
-python-telegram-bot==21.0.1
+# Telegram Bot (using older stable version to avoid cryptography issues)
+python-telegram-bot==20.7
+APScheduler==3.10.4
 
 # Environment and Configuration
 python-dotenv==1.0.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# Security and Authentication
-cryptography
-python-jose==3.3.0
+# Security and Authentication (using pre-built wheels)
+cryptography==41.0.7
+python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
 
 # HTTP Client and File Handling
 aiohttp==3.9.1
@@ -39,12 +41,6 @@ jinja2==3.1.2
 
 # Monitoring and Logging
 structlog==23.2.0
-
-# Development and Testing (optional)
-pytest==7.4.3
-pytest-asyncio==0.21.1
-black==23.11.0
-isort==5.12.0
 
 # Production Server
 gunicorn==21.2.0
