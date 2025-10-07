@@ -20,7 +20,7 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 
 # Security and Authentication
-cryptography==41.0.8
+cryptography
 python-jose==3.3.0
 passlib[bcrypt]==1.7.4
 
