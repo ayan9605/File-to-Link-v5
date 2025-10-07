@@ -1,17 +1,17 @@
 # File-To-Link V5 - Python 3.13 Compatible
-# Updated with Pydantic v2 and latest stable versions
+# All dependency conflicts resolved
 
 # FastAPI and ASGI
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 python-multipart==0.0.20
 
-# Async MongoDB Driver
+# Async MongoDB Driver (Compatible versions)
 motor==3.6.0
-pymongo==4.10.1
+pymongo==4.9.1
 dnspython==2.7.0
 
-# Telegram Bot (Latest compatible version)
+# Telegram Bot
 python-telegram-bot==21.7
 httpx==0.28.1
 
@@ -19,6 +19,7 @@ httpx==0.28.1
 python-dotenv==1.0.1
 pydantic==2.10.3
 pydantic-settings==2.6.1
+pydantic-core==2.27.1
 
 # Security and Authentication
 cryptography==44.0.0
@@ -37,9 +38,40 @@ pytz==2024.2
 
 # Template Engine
 jinja2==3.1.4
+MarkupSafe==3.0.2
 
 # Monitoring
 structlog==24.4.0
 
 # Production Server
 gunicorn==23.0.0
+
+# Additional dependencies for FastAPI/Uvicorn
+starlette==0.41.3
+anyio==4.8.0
+sniffio==1.3.1
+idna==3.10
+typing-extensions==4.15.0
+annotated-types==0.7.0
+
+# For uvicorn[standard]
+websockets==14.1
+httptools==0.6.4
+uvloop==0.21.0
+watchfiles==1.0.3
+
+# For aiohttp
+aiosignal==1.4.0
+attrs==25.4.0
+frozenlist==1.8.0
+multidict==6.7.0
+yarl==1.18.3
+propcache==0.4.0
+
+# For python-jose
+ecdsa==0.19.1
+pyasn1==0.6.1
+rsa==4.9.1
+
+# For python-telegram-bot  
+APScheduler==3.10.4
