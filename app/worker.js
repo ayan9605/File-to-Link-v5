@@ -1,7 +1,7 @@
 // Cloudflare Worker - CDN Proxy for File Downloads
 // Caches files and provides ultra-fast global delivery
 
-const BACKEND_URL = "https://filetolinkv5.onrender.com";
+const BACKEND_URL = "https://file-to-link-v5.onrender.com";
 
 // Cache configuration
 const CACHE_TTL = 3600; // 1 hour
