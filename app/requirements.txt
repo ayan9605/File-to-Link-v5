@@ -1,0 +1,50 @@
+# Production Dependencies for File-To-Link System V5
+# All versions pinned for stability and security
+
+# FastAPI and ASGI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Async MongoDB Driver
+motor==3.3.2
+pymongo==4.6.0
+dnspython==2.4.2
+
+# Telegram Bot
+python-telegram-bot==21.0.1
+
+# Environment and Configuration
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Security and Authentication
+cryptography==41.0.8
+python-jose==3.3.0
+passlib[bcrypt]==1.7.4
+
+# HTTP Client and File Handling
+aiohttp==3.9.1
+aiofiles==23.2.1
+httpx==0.25.2
+
+# Utilities and Helpers
+certifi==2023.11.17
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Template Engine (for admin panel)
+jinja2==3.1.2
+
+# Monitoring and Logging
+structlog==23.2.0
+
+# Development and Testing (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+isort==5.12.0
+
+# Production Server
+gunicorn==21.2.0
