@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File-To-Link V5 - Admin Dashboard</title>
+    <link rel="stylesheet" href="/static/admin.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <div class="brand">
+                    <span class="brand-icon">🚀</span>
+                    <span class="brand-text">File-To-Link V5</span>
+                </div>
+                <button class="sidebar-toggle" id="sidebarToggle">
+                    <i data-feather="menu"></i>
+                </button>
+            </div>
+            
+            <div class="sidebar-menu">
+                <a href="#dashboard" class="menu-item active" data-section="dashboard">
+                    <i data-feather="home"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#files" class="menu-item" data-section="files">
+                    <i data-feather="file"></i>
+                    <span>File Management</span>
+                </a>
+                <a href="#users" class="menu-item" data-section="users">
+                    <i data-feather="users"></i>
+                    <span>User Management</span>
+                </a>
+                <a href="#analytics" class="menu-item" data-section="analytics">
+                    <i data-feather="bar-chart-2"></i>
+                    <span>Analytics</span>
+                </a>
+                <a href="#settings" class="menu-item" data-section="settings">
+                    <i data-feather="settings"></i>
+                    <span>Settings</span>
+                </a>
+                <a href="#logs" class="menu-item" data-section="logs">
+                    <i data-feather="file-text"></i>
+                    <span>Admin Logs</span>
+                </a>
+            </div>
+            
+            <div class="sidebar-footer">
+                <div class="admin-profile">
+                    <div class="admin-avatar">👑</div>
+                    <div class="admin-info">
+                        <div class="admin-name">Super Admin</div>
+                        <div class="admin-role">Administrator</div>
+                    </div>
+                </div>
+                <button class="logout-btn" onclick="logout()">
+                    <i data-feather="log-out"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="content-header">
+                <div class="header-left">
+                    <h1 class="page-title">Dashboard</h1>
+                    <p class="page-subtitle">System overview and statistics</p>
+                </div>
+                <div class="header-right">
+                    <div class="header-actions">
+                        <button class="action-btn" id="refreshBtn">
+                            <i data-feather="refresh-cw"></i>
+                            <span>Refresh</span>
+                        </button>
+                        <div class="system-status">
+                            <div class="status-indicator online"></div>
+                            <span class="status-text">System Online</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-body">
+                <!-- Dashboard Section -->
+                <section class="content-section active" id="dashboard-section">
+                    <!-- Statistics Cards -->
+                    <div class="stats-grid">
+                        <div class="stat-card primary">
+                            <div class="stat-icon">
+                                <i data-feather="file"></i>
+                            </div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="totalFiles">0</div>
+                                <div class="stat-label">Total Files</div>
+                                <div class="stat-change positive">
+                                    <i data-feather="trending-up"></i>
+                                    <span>+12.5%</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card success">
+                            <div class="stat-icon">
+                                <i data-feather="users"></i>
+                            </div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="totalUsers">0</div>
+                                <div class="stat-label">Active Users</div>
+                                <div class="stat-change positive">
+                                    <i data-feather="trending-up"></i>
+                                    <span>+8.2%</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card warning">
+                            <div class="stat-icon">
+                                <i data-feather="download"></i>
+                            </div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="totalDownloads">0</div>
+                                <div class="stat-label">Downloads (24h)</div>
+                                <div class="stat-change positive">
+                                    <i data-feather="trending-up"></i>
+                                    <span>+24.1%</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card info">
+                            <div class="stat-icon">
+                                <i data-feather="hard-drive"></i>
+                            </div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="totalStorage">0 GB</div>
+                                <div class="stat-label">Storage Used</div>
+                                <div class="stat-change neutral">
+                                    <i data-feather="trending-up"></i>
+                                    <span>+5.7%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Section -->
+                    <div class="charts-grid">
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3>Upload Trends</h3>
+                                <div class="chart-actions">
+                                    <select class="chart-period">
+                                        <option value="7">Last 7 days</option>
+                                        <option value="30" selected>Last 30 days</option>
+                                        <option value="90">Last 90 days</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="chart-body">
+                                <canvas id="uploadsChart"></canvas>
+                            </div>
+                        </div>
+                        
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3>Download Activity</h3>
+                                <div class="chart-actions">
+                                    <button class="chart-btn active" data-chart="downloads">Downloads</button>
+                                    <button class="chart-btn" data-chart="bandwidth">Bandwidth</button>
+                                </div>
+                            </div>
+                            <div class="chart-body">
+                                <canvas id="downloadsChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="activity-section">
+                        <div class="section-header">
+                            <h3>Recent Activity</h3>
+                            <button class="view-all-btn">View All</button>
+                        </div>
+                        <div class="activity-list" id="recentActivity">
+                            <!-- Dynamic content loaded here -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Files Section -->
+                <section class="content-section" id="files-section">
+                    <div class="section-header">
+                        <h3>File Management</h3>
+                        <div class="section-actions">
+                            <div class="search-box">
+                                <i data-feather="search"></i>
+                                <input type="text" placeholder="Search files..." id="fileSearch">
+                            </div>
+                            <select class="filter-select">
+                                <option value="all">All Files</option>
+                                <option value="images">Images</option>
+                                <option value="videos">Videos</option>
+                                <option value="documents">Documents</option>
+                                <option value="archives">Archives</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="files-table-container">
+                        <table class="files-table" id="filesTable">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="selectAll"></th>
+                                    <th>File Name</th>
+                                    <th>Size</th>
+                                    <th>Type</th>
+                                    <th>Uploader</th>
+                                    <th>Upload Date</th>
+                                    <th>Downloads</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="filesTableBody">
+                                <!-- Dynamic content -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="table-pagination">
+                        <div class="pagination-info">
+                            Showing <span id="pageInfo">1-50 of 1,234</span> files
+                        </div>
+                        <div class="pagination-controls">
+                            <button class="pagination-btn" id="prevPage">Previous</button>
+                            <div class="pagination-numbers">
+                                <button class="pagination-number active">1</button>
+                                <button class="pagination-number">2</button>
+                                <button class="pagination-number">3</button>
+                                <span>...</span>
+                                <button class="pagination-number">25</button>
+                            </div>
+                            <button class="pagination-btn" id="nextPage">Next</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Users Section -->
+                <section class="content-section" id="users-section">
+                    <div class="section-header">
+                        <h3>User Management</h3>
+                        <div class="section-actions">
+                            <div class="search-box">
+                                <i data-feather="search"></i>
+                                <input type="text" placeholder="Search users..." id="userSearch">
+                            </div>
+                            <select class="filter-select">
+                                <option value="all">All Users</option>
+                                <option value="active">Active</option>
+                                <option value="blocked">Blocked</option>
+                                <option value="new">New (7 days)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="users-grid" id="usersGrid">
+                        <!-- Dynamic user cards -->
+                    </div>
+                </section>
+
+                <!-- Analytics Section -->
+                <section class="content-section" id="analytics-section">
+                    <div class="section-header">
+                        <h3>Analytics & Insights</h3>
+                        <div class="date-range-picker">
+                            <input type="date" id="startDate">
+                            <span>to</span>
+                            <input type="date" id="endDate">
+                            <button class="apply-btn">Apply</button>
+                        </div>
+                    </div>
+                    
+                    <div class="analytics-grid">
+                        <div class="analytics-card">
+                            <h4>Top File Types</h4>
+                            <canvas id="fileTypesChart"></canvas>
+                        </div>
+                        
+                        <div class="analytics-card">
+                            <h4>Geographic Distribution</h4>
+                            <canvas id="geoChart"></canvas>
+                        </div>
+                        
+                        <div class="analytics-card">
+                            <h4>Peak Usage Hours</h4>
+                            <canvas id="hourlyChart"></canvas>
+                        </div>
+                        
+                        <div class="analytics-card">
+                            <h4>User Activity</h4>
+                            <canvas id="userActivityChart"></canvas>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Settings Section -->
+                <section class="content-section" id="settings-section">
+                    <div class="settings-container">
+                        <div class="settings-nav">
+                            <button class="settings-tab active" data-tab="general">General</button>
+                            <button class="settings-tab" data-tab="security">Security</button>
+                            <button class="settings-tab" data-tab="bot">Bot Settings</button>
+                            <button class="settings-tab" data-tab="notifications">Notifications</button>
+                        </div>
+                        
+                        <div class="settings-content">
+                            <div class="settings-panel active" id="general-settings">
+                                <h3>General Settings</h3>
+                                <div class="settings-form">
+                                    <div class="form-group">
+                                        <label>Max File Size (MB)</label>
+                                        <input type="number" value="2048" min="1" max="5000">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Allowed Extensions</label>
+                                        <textarea rows="3">jpg,jpeg,png,gif,mp4,pdf,zip,rar</textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>File TTL (days)</label>
+                                        <input type="number" value="30" min="1" max="365">
+                                        <small>Files older than this will be automatically deleted</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="settings-panel" id="security-settings">
+                                <h3>Security Settings</h3>
+                                <div class="settings-form">
+                                    <div class="form-group">
+                                        <label>Rate Limit (per minute)</label>
+                                        <input type="number" value="60" min="1" max="1000">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Enable Analytics</label>
+                                        <label class="toggle">
+                                            <input type="checkbox" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Logs Section -->
+                <section class="content-section" id="logs-section">
+                    <div class="section-header">
+                        <h3>Admin Logs</h3>
+                        <div class="section-actions">
+                            <select class="filter-select">
+                                <option value="all">All Actions</option>
+                                <option value="file_upload">File Uploads</option>
+                                <option value="file_delete">File Deletions</option>
+                                <option value="user_block">User Blocks</option>
+                                <option value="settings_change">Settings Changes</option>
+                            </select>
+                            <button class="export-btn">Export Logs</button>
+                        </div>
+                    </div>
+                    
+                    <div class="logs-container" id="logsContainer">
+                        <!-- Dynamic log entries -->
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p>Loading...</p>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal" id="fileModal">
+            <div class="modal-header">
+                <h3>File Details</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- File details content -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/admin.js"></script>
+    <script>
+        feather.replace();
+    </script>
+</body>
+</html>
