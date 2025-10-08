@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -85,6 +85,18 @@ app.add_middleware(
 app.include_router(file_routes.router, prefix="/api/v1")
 app.include_router(admin_routes.router, prefix="/admin")
 
+# Direct download route for CDN compatibility (without /api/v1 prefix)
+@app.get("/dl/{file_id}")
+async def direct_download_file(
+    file_id: str,
+    code: str,
+    request: Request,
+    response: Response
+):
+    """Direct download route for CDN and Render links"""
+    from routes.file_routes import download_file_handler
+    return await download_file_handler(file_id, code, request, response)
+
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
@@ -131,7 +143,8 @@ async def root():
         ],
         "endpoints": {
             "upload": "/api/v1/upload",
-            "download": "/api/v1/dl/{file_id}",
+            "download_api": "/api/v1/dl/{file_id}",
+            "download_direct": "/dl/{file_id}",
             "random": "/api/v1/random",
             "admin": "/admin",
             "health": "/health"
@@ -150,6 +163,17 @@ async def health_check():
         "database": db_status,
         "telegram_bot": bot_status,
         "version": "5.0"
+    }
+
+@app.get("/test-routes")
+async def test_routes():
+    """Test all download routes"""
+    return {
+        "api_route": "/api/v1/dl/{file_id}?code={code}",
+        "direct_route": "/dl/{file_id}?code={code}",
+        "cdn_route": f"{settings.CLOUDFLARE_WORKER_URL}/dl/{{file_id}}?code={{code}}",
+        "render_route": f"{settings.RENDER_URL}/dl/{{file_id}}?code={{code}}",
+        "bot_route": f"https://t.me/{settings.BOT_USERNAME}?start={{code}}"
     }
 
 if __name__ == "__main__":
