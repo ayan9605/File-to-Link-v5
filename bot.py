@@ -7,7 +7,7 @@ from telegram.ext import (
     ContextTypes, CallbackQueryHandler,
     filters
 )
-from telegram.request import HTTPXRequest
+from telegram.request import HTTPRequest
 import aiohttp
 import aiofiles
 from datetime import datetime
@@ -35,7 +35,7 @@ class TelegramBot:
                 logger.warning("No Telegram bot token configured")
                 return False
                 
-            request = HTTPXRequest(connect_timeout=30, read_timeout=30)
+            request = HTTPRequest(connect_timeout=30, read_timeout=30)
             self.application = (
                 Application.builder()
                 .token(settings.TELEGRAM_BOT_TOKEN)
@@ -45,9 +45,6 @@ class TelegramBot:
             
             # Add handlers
             self.add_handlers()
-            
-            # Initialize the application (required for v20+ webhooks)
-            await self.application.initialize()
             
             logger.info("Telegram bot initialized successfully")
             return True
@@ -188,11 +185,19 @@ class TelegramBot:
             unique_code = generate_unique_code()
             internal_file_id = generate_unique_code(16)
             
-            # Download file from Telegram
-            file_path = await self.download_telegram_file(file_id, internal_file_id)
+            # Download file from Telegram - FIXED VERSION
+            file_path = await self.download_telegram_file_fixed(file_id, internal_file_id)
             
             if not file_path:
-                await processing_msg.edit_text("❌ Failed to download file from Telegram.")
+                await processing_msg.edit_text("❌ Failed to download file from Telegram. Please try again.")
+                return
+            
+            # Verify file was actually downloaded
+            if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+                await processing_msg.edit_text("❌ Downloaded file is empty or corrupted. Please try again.")
+                # Clean up empty file
+                if os.path.exists(file_path):
+                    os.remove(file_path)
                 return
             
             # Store in database
@@ -202,7 +207,7 @@ class TelegramBot:
                 "unique_code": unique_code,
                 "original_name": safe_filename,
                 "file_path": file_path,
-                "file_size": file_size or 0,
+                "file_size": file_size or os.path.getsize(file_path),
                 "file_hash": "",  # Would calculate in production
                 "uploader_id": str(user.id),
                 "upload_time": datetime.utcnow(),
@@ -224,7 +229,7 @@ class TelegramBot:
 ✅ <b>File uploaded successfully!</b>
 
 📁 <b>File:</b> <code>{escaped_filename}</code>
-📦 <b>Size:</b> {format_size(file_size) if file_size else "Unknown"}
+📦 <b>Size:</b> {format_size(file_data['file_size'])}
 
 <b>Download Links:</b>
 🚀 <b>CDN Link:</b> <code>{links['cloudflare']}</code>
@@ -251,38 +256,101 @@ class TelegramBot:
             )
             
         except Exception as e:
-            logger.error(f"Upload error: {str(e)}")
+            logger.error(f"Upload error: {str(e)}", exc_info=True)
             try:
                 await processing_msg.edit_text("❌ An error occurred while processing your file.")
             except:
                 await message.reply_text("❌ An error occurred while processing your file.")
     
-    async def download_telegram_file(self, file_id: str, local_filename: str) -> str:
-        """Download file from Telegram servers"""
+    async def download_telegram_file_fixed(self, file_id: str, local_filename: str) -> str:
+        """Fixed version of file download from Telegram servers"""
         try:
             # Ensure uploads directory exists
-            uploads_dir = "uploads"
-            os.makedirs(uploads_dir, exist_ok=True)
+            os.makedirs("uploads", exist_ok=True)
             
-            # Get file from Telegram
             file = await self.application.bot.get_file(file_id)
-            file_path = os.path.join(uploads_dir, local_filename)
-            
-            # Download file
-            logger.info(f"Starting download for file_id: {file_id}")
-            await file.download_to_drive(file_path)
-            
-            # Verify file was actually downloaded
-            if not os.path.exists(file_path):
-                logger.error(f"File download completed but file not found at: {file_path}")
+            if not file:
+                logger.error(f"Failed to get file object for file_id: {file_id}")
                 return None
             
-            file_size = os.path.getsize(file_path)
-            logger.info(f"File downloaded successfully: {file_path} ({file_size} bytes)")
-            return file_path
+            file_path = os.path.join("uploads", local_filename)
+            logger.info(f"Downloading file to: {file_path}")
             
+            # Download file using the file object's download method
+            await file.download_to_drive(custom_path=file_path)
+            
+            # Verify download was successful
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                logger.info(f"Successfully downloaded file: {file_path} ({os.path.getsize(file_path)} bytes)")
+                return file_path
+            else:
+                logger.error(f"Downloaded file is empty or doesn't exist: {file_path}")
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                return None
+                    
         except Exception as e:
             logger.error(f"Download error for file_id {file_id}: {str(e)}", exc_info=True)
+            # Clean up any partial download
+            file_path = os.path.join("uploads", local_filename)
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+            return None
+    
+    async def download_telegram_file(self, file_id: str, local_filename: str) -> str:
+        """Alternative download method using direct HTTP download"""
+        try:
+            # Ensure uploads directory exists
+            os.makedirs("uploads", exist_ok=True)
+            
+            file = await self.application.bot.get_file(file_id)
+            if not file:
+                logger.error(f"Failed to get file object for file_id: {file_id}")
+                return None
+            
+            file_path = os.path.join("uploads", local_filename)
+            
+            # Get the file URL from Telegram
+            file_url = file.file_path
+            if not file_url:
+                logger.error(f"No file_path available for file_id: {file_id}")
+                return None
+            
+            # Construct full URL
+            full_url = f"https://api.telegram.org/file/bot{settings.TELEGRAM_BOT_TOKEN}/{file_url}"
+            
+            # Download using aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(full_url) as response:
+                    if response.status == 200:
+                        # Write file in chunks to handle large files
+                        async with aiofiles.open(file_path, 'wb') as f:
+                            async for chunk in response.content.iter_chunked(8192):
+                                await f.write(chunk)
+                        
+                        # Verify download
+                        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                            logger.info(f"Successfully downloaded file via HTTP: {file_path}")
+                            return file_path
+                        else:
+                            logger.error("Downloaded file is empty")
+                            return None
+                    else:
+                        logger.error(f"HTTP download failed with status: {response.status}")
+                        return None
+                        
+        except Exception as e:
+            logger.error(f"HTTP download error: {str(e)}", exc_info=True)
+            # Clean up
+            file_path = os.path.join("uploads", local_filename)
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
             return None
     
     async def send_file_via_code(self, update: Update, context: ContextTypes.DEFAULT_TYPE, unique_code: str):
@@ -314,11 +382,12 @@ class TelegramBot:
             escaped_filename = html.escape(file_name)
             
             # For large files, we might want to send the link instead
-            if file_data["file_size"] > 45 * 1024 * 1024:  # 45MB Telegram limit
+            file_size = os.path.getsize(file_path)
+            if file_size > 45 * 1024 * 1024:  # 45MB Telegram limit
                 links = generate_links(file_data["file_id"], unique_code)
                 await update.message.reply_text(
                     f"📁 <b>File:</b> {escaped_filename}\n"
-                    f"📦 <b>Size:</b> {format_size(file_data['file_size'])}\n\n"
+                    f"📦 <b>Size:</b> {format_size(file_size)}\n\n"
                     f"📥 <b>Download:</b> {links['cloudflare']}",
                     parse_mode='HTML'
                 )
@@ -327,7 +396,7 @@ class TelegramBot:
                 await update.message.reply_document(
                     document=open(file_path, 'rb'),
                     filename=file_name,
-                    caption=f"📁 {file_name}\n📦 {format_size(file_data['file_size'])}"
+                    caption=f"📁 {file_name}\n📦 {format_size(file_size)}"
                 )
                 
         except Exception as e:
@@ -359,9 +428,6 @@ class TelegramBot:
             total_storage_result = await db.files.aggregate(storage_pipeline).to_list(length=1)
             storage_size = total_storage_result[0]["total_size"] if total_storage_result else 0
             
-            # Add timestamp to ensure message is always different when refreshing
-            current_time = datetime.utcnow().strftime("%H:%M:%S UTC")
-            
             admin_text = f"""
 🏠 <b>Admin Panel</b>
 
@@ -371,8 +437,6 @@ class TelegramBot:
 • Storage Used: <code>{format_size(storage_size)}</code>
 
 ⚡ <b>Quick Actions:</b>
-
-<i>Last updated: {current_time}</i>
             """
             
             keyboard = [
@@ -385,19 +449,11 @@ class TelegramBot:
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             if update.callback_query:
-                try:
-                    await update.callback_query.edit_message_text(
-                        admin_text,
-                        reply_markup=reply_markup,
-                        parse_mode='HTML'
-                    )
-                except Exception as edit_error:
-                    # Handle the "message is not modified" error gracefully
-                    error_msg = str(edit_error).lower()
-                    if "message is not modified" in error_msg or "message content and reply markup are exactly the same" in error_msg:
-                        await update.callback_query.answer("✅ Stats are up to date!", show_alert=False)
-                    else:
-                        raise edit_error
+                await update.callback_query.edit_message_text(
+                    admin_text,
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
+                )
             else:
                 await update.message.reply_text(
                     admin_text,
@@ -408,10 +464,7 @@ class TelegramBot:
             logger.error(f"Admin panel error: {e}")
             error_msg = "❌ Error loading admin panel"
             if update.callback_query:
-                try:
-                    await update.callback_query.edit_message_text(error_msg)
-                except:
-                    await update.callback_query.answer(error_msg, show_alert=True)
+                await update.callback_query.edit_message_text(error_msg)
             else:
                 await update.message.reply_text(error_msg)
     
