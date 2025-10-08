@@ -177,9 +177,26 @@ class TelegramBot:
                 mime_type = "image/jpeg"
             else:
                 file_id = file_obj.file_id
-                file_name = getattr(file_obj, 'file_name', f'file_{file_id}')
+                # Fix: Handle None filename and add file extension based on mime type
+                base_file_name = getattr(file_obj, 'file_name', None)
+                if not base_file_name:
+                    # Try to determine extension from mime type
+                    mime_type = getattr(file_obj, 'mime_type', None) or 'application/octet-stream'
+                    extension = ''
+                    if mime_type:
+                        if 'video' in mime_type:
+                            extension = '.mp4'
+                        elif 'audio' in mime_type:
+                            extension = '.mp3'
+                        elif 'image' in mime_type:
+                            extension = '.jpg'
+                        else:
+                            extension = '.file'
+                    file_name = f'file_{file_id}{extension}'
+                else:
+                    file_name = base_file_name
                 file_size = file_obj.file_size
-                mime_type = getattr(file_obj, 'mime_type', 'application/octet-stream')
+                mime_type = getattr(file_obj, 'mime_type', None) or 'application/octet-stream'
             
             # Sanitize filename
             safe_filename = sanitize_filename(file_name)
