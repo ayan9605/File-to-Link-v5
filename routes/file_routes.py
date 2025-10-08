@@ -114,13 +114,8 @@ async def upload_file(
                 pass
         raise HTTPException(500, f"Upload failed: {str(e)}")
 
-@router.get("/dl/{file_id}")
-async def download_file(
-    file_id: str,
-    code: str,
-    request: Request,
-    response: Response
-):
+# This function is used by both API route and direct route
+async def download_file_handler(file_id: str, code: str, request: Request, response: Response):
     db = get_database()
     
     # Find file in database
@@ -207,6 +202,17 @@ async def download_file(
         media_type=file_data["mime_type"],
         headers=headers
     )
+
+# API route (with /api/v1 prefix)
+@router.get("/dl/{file_id}")
+async def download_file_api(
+    file_id: str,
+    code: str,
+    request: Request,
+    response: Response
+):
+    """Download file via API route"""
+    return await download_file_handler(file_id, code, request, response)
 
 @router.get("/random")
 @limiter.limit("10/minute")
