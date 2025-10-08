@@ -45,6 +45,9 @@ class TelegramBot:
             # Add handlers
             self.add_handlers()
             
+            # Initialize the application (required for v20+ webhooks)
+            await self.application.initialize()
+            
             logger.info("Telegram bot initialized successfully")
             return True
         except Exception as e:
