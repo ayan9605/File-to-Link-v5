@@ -57,6 +57,7 @@ def generate_links(file_id: str, unique_code: str) -> Dict[str, str]:
     """Generate three download links for a file"""
     base_bot_link = f"https://t.me/{settings.BOT_USERNAME}?start={unique_code}" if settings.BOT_USERNAME else f"https://t.me/your_bot?start={unique_code}"
     
+    # Use direct routes for CDN and Render (without /api/v1 prefix)
     return {
         "cloudflare": f"{settings.CLOUDFLARE_WORKER_URL}/dl/{file_id}?code={unique_code}",
         "render": f"{settings.RENDER_URL}/dl/{file_id}?code={unique_code}",
