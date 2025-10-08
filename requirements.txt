@@ -10,7 +10,7 @@ jinja2==3.1.2
 python-multipart==0.0.6
 slowapi==0.1.9
 redis==5.0.1
-cryptography==41.0.8
+cryptography
 pillow==10.1.0
 pymongo==4.5.0
 httpx==0.25.2
