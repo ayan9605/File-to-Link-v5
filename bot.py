@@ -1,16 +1,18 @@
 import os
 import logging
+import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, 
     ContextTypes, CallbackQueryHandler,
     filters
 )
-from telegram.request import HTTPXRequest
+from telegram.request import HTTPRequest
 import aiohttp
 import aiofiles
 from datetime import datetime
 from typing import Dict, Any
+import re
 
 from config import settings
 from db import get_database
@@ -34,7 +36,7 @@ class TelegramBot:
                 logger.warning("No Telegram bot token configured")
                 return False
                 
-            request = HTTPXRequest(connect_timeout=30, read_timeout=30)
+            request = HTTPRequest(connect_timeout=30, read_timeout=30)
             self.application = (
                 Application.builder()
                 .token(settings.TELEGRAM_BOT_TOKEN)
@@ -44,9 +46,6 @@ class TelegramBot:
             
             # Add handlers
             self.add_handlers()
-            
-            # Initialize the application (required for v20+ webhooks)
-            await self.application.initialize()
             
             logger.info("Telegram bot initialized successfully")
             return True
@@ -65,6 +64,26 @@ class TelegramBot:
         self.application.add_handler(MessageHandler(filters.AUDIO, self.audio_handler))
         self.application.add_handler(CallbackQueryHandler(self.button_handler))
     
+    def escape_markdown(self, text: str) -> str:
+        """Escape special characters for MarkdownV2"""
+        if not text:
+            return ""
+        escape_chars = r'\_*[]()~`>#+-=|{}.!'
+        return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+    
+    def escape_markdown_v1(self, text: str) -> str:
+        """Escape special characters for Markdown (legacy)"""
+        if not text:
+            return ""
+        # For Markdown (not MarkdownV2), we only need to escape specific characters
+        escape_chars = r'_*`['
+        return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+    
+    def format_message_safe(self, text: str) -> str:
+        """Format message with safe Markdown handling"""
+        # Use HTML parsing instead of Markdown to avoid formatting issues
+        return text
+    
     async def start_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         user = update.effective_user
@@ -77,22 +96,22 @@ class TelegramBot:
             return
         
         welcome_text = """
-🤖 **Welcome to FileToLink Bot!**
+🤖 <b>Welcome to FileToLink Bot!</b>
 
-**How to use:**
+<b>How to use:</b>
 1. Send me any file (document, photo, video, audio)
 2. I'll generate 3 download links for you:
-   - 🚀 **Cloudflare CDN** (Super Fast)
-   - 🌐 **Direct Link** (Normal Speed)
-   - 🤖 **Bot Access** (Private)
+   - 🚀 <b>Cloudflare CDN</b> (Super Fast)
+   - 🌐 <b>Direct Link</b> (Normal Speed)
+   - 🤖 <b>Bot Access</b> (Private)
 
-**Features:**
+<b>Features:</b>
 • Support for large files
 • Fast download links
 • Secure file sharing
 • No registration required
 
-**Just send me a file to get started!**
+<b>Just send me a file to get started!</b>
         """
         
         keyboard = []
@@ -106,35 +125,35 @@ class TelegramBot:
         await update.message.reply_text(
             welcome_text,
             reply_markup=reply_markup,
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     
     async def help_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         help_text = """
-📖 **FileToLink Bot Help**
+📖 <b>FileToLink Bot Help</b>
 
-**Commands:**
+<b>Commands:</b>
 /start - Start the bot and see welcome message
 /help - Show this help message
 /admin - Admin panel (admins only)
 
-**How to use:**
+<b>How to use:</b>
 1. Send any file (document, image, video, audio)
 2. Get instant download links
 3. Share links with others
 
-**Supported file types:**
+<b>Supported file types:</b>
 • Documents (PDF, Word, Text, etc.)
 • Images (JPG, PNG, GIF, etc.)
 • Videos (MP4, AVI, MOV, etc.)
 • Audio (MP3, WAV, OGG, etc.)
 • Archives (ZIP, RAR, etc.)
 
-**Need help?** Contact the administrator.
+<b>Need help?</b> Contact the administrator.
         """
         
-        await update.message.reply_text(help_text, parse_mode='Markdown')
+        await update.message.reply_text(help_text, parse_mode='HTML')
     
     async def file_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle document files"""
@@ -215,19 +234,22 @@ class TelegramBot:
             # Generate links
             links = generate_links(internal_file_id, unique_code)
             
-            # Send success message with links
+            # Escape filename for safe display
+            escaped_filename = html.escape(safe_filename)
+            
+            # Send success message with links using HTML formatting
             success_text = f"""
-✅ **File uploaded successfully!**
+✅ <b>File uploaded successfully!</b>
 
-📁 **File:** `{safe_filename}`
-📦 **Size:** {format_size(file_size) if file_size else "Unknown"}
+📁 <b>File:</b> <code>{escaped_filename}</code>
+📦 <b>Size:</b> {format_size(file_size) if file_size else "Unknown"}
 
-**Download Links:**
-🚀 **CDN Link:** {links['cloudflare']}
-🌐 **Direct Link:** {links['render']}
-🤖 **Bot Link:** {links['bot']}
+<b>Download Links:</b>
+🚀 <b>CDN Link:</b> <code>{links['cloudflare']}</code>
+🌐 <b>Direct Link:</b> <code>{links['render']}</code>
+🤖 <b>Bot Link:</b> <code>{links['bot']}</code>
 
-**Share securely!** ⚡
+<b>Share securely!</b> ⚡
             """
             
             keyboard = [
@@ -243,7 +265,7 @@ class TelegramBot:
             await processing_msg.edit_text(
                 success_text,
                 reply_markup=reply_markup,
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
             
         except Exception as e:
@@ -292,14 +314,17 @@ class TelegramBot:
                 await update.message.reply_text("❌ File no longer available on server.")
                 return
             
+            # Escape filename for safe display
+            escaped_filename = html.escape(file_name)
+            
             # For large files, we might want to send the link instead
             if file_data["file_size"] > 45 * 1024 * 1024:  # 45MB Telegram limit
                 links = generate_links(file_data["file_id"], unique_code)
                 await update.message.reply_text(
-                    f"📁 **File:** {file_name}\n"
-                    f"📦 **Size:** {format_size(file_data['file_size'])}\n\n"
-                    f"📥 **Download:** {links['cloudflare']}",
-                    parse_mode='Markdown'
+                    f"📁 <b>File:</b> {escaped_filename}\n"
+                    f"📦 <b>Size:</b> {format_size(file_data['file_size'])}\n\n"
+                    f"📥 <b>Download:</b> {links['cloudflare']}",
+                    parse_mode='HTML'
                 )
             else:
                 # Send file directly
@@ -339,14 +364,14 @@ class TelegramBot:
             storage_size = total_storage_result[0]["total_size"] if total_storage_result else 0
             
             admin_text = f"""
-🏠 **Admin Panel**
+🏠 <b>Admin Panel</b>
 
-📊 **Statistics:**
-• Total Files: `{total_files}`
-• Total Users: `{total_users}`
-• Storage Used: `{format_size(storage_size)}`
+📊 <b>Statistics:</b>
+• Total Files: <code>{total_files}</code>
+• Total Users: <code>{total_users}</code>
+• Storage Used: <code>{format_size(storage_size)}</code>
 
-⚡ **Quick Actions:**
+⚡ <b>Quick Actions:</b>
             """
             
             keyboard = [
@@ -362,13 +387,13 @@ class TelegramBot:
                 await update.callback_query.edit_message_text(
                     admin_text,
                     reply_markup=reply_markup,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
             else:
                 await update.message.reply_text(
                     admin_text,
                     reply_markup=reply_markup,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
         except Exception as e:
             logger.error(f"Admin panel error: {e}")
