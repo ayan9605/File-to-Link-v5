@@ -7,7 +7,7 @@ from telegram.ext import (
     ContextTypes, CallbackQueryHandler,
     filters
 )
-from telegram.request import HTTPRequest
+from telegram.request import HTTPXRequest
 import aiohttp
 import aiofiles
 from datetime import datetime
@@ -36,7 +36,7 @@ class TelegramBot:
                 logger.warning("No Telegram bot token configured")
                 return False
                 
-            request = HTTPRequest(connect_timeout=30, read_timeout=30)
+            request = HTTPXRequest(connect_timeout=30, read_timeout=30)
             self.application = (
                 Application.builder()
                 .token(settings.TELEGRAM_BOT_TOKEN)
@@ -46,6 +46,9 @@ class TelegramBot:
             
             # Add handlers
             self.add_handlers()
+            
+            # Initialize the application (required for v20+ webhooks)
+            await self.application.initialize()
             
             logger.info("Telegram bot initialized successfully")
             return True
