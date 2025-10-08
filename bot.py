@@ -7,12 +7,11 @@ from telegram.ext import (
     ContextTypes, CallbackQueryHandler,
     filters
 )
-from telegram.request import HTTPXRequest
+from telegram.request import HTTPRequest
 import aiohttp
 import aiofiles
 from datetime import datetime
 from typing import Dict, Any
-import re
 
 from config import settings
 from db import get_database
@@ -36,7 +35,7 @@ class TelegramBot:
                 logger.warning("No Telegram bot token configured")
                 return False
                 
-            request = HTTPXRequest(connect_timeout=30, read_timeout=30)
+            request = HTTPRequest(connect_timeout=30, read_timeout=30)
             self.application = (
                 Application.builder()
                 .token(settings.TELEGRAM_BOT_TOKEN)
@@ -46,9 +45,6 @@ class TelegramBot:
             
             # Add handlers
             self.add_handlers()
-            
-            # Initialize the application (required for v20+ webhooks)
-            await self.application.initialize()
             
             logger.info("Telegram bot initialized successfully")
             return True
@@ -66,26 +62,6 @@ class TelegramBot:
         self.application.add_handler(MessageHandler(filters.VIDEO, self.video_handler))
         self.application.add_handler(MessageHandler(filters.AUDIO, self.audio_handler))
         self.application.add_handler(CallbackQueryHandler(self.button_handler))
-    
-    def escape_markdown(self, text: str) -> str:
-        """Escape special characters for MarkdownV2"""
-        if not text:
-            return ""
-        escape_chars = r'\_*[]()~`>#+-=|{}.!'
-        return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
-    
-    def escape_markdown_v1(self, text: str) -> str:
-        """Escape special characters for Markdown (legacy)"""
-        if not text:
-            return ""
-        # For Markdown (not MarkdownV2), we only need to escape specific characters
-        escape_chars = r'_*`['
-        return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
-    
-    def format_message_safe(self, text: str) -> str:
-        """Format message with safe Markdown handling"""
-        # Use HTML parsing instead of Markdown to avoid formatting issues
-        return text
     
     async def start_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
