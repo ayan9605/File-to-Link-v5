@@ -7,7 +7,7 @@ from telegram.ext import (
     ContextTypes, CallbackQueryHandler,
     filters
 )
-from telegram.request import HTTPRequest
+from telegram.request import HTTPXRequest
 import aiohttp
 import aiofiles
 from datetime import datetime
@@ -24,6 +24,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Ensure uploads directory exists at module level
+UPLOAD_DIR = os.path.abspath("uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+logger.info(f"Uploads directory initialized: {UPLOAD_DIR}")
+
 class TelegramBot:
     def __init__(self):
         self.application = None
@@ -35,7 +40,7 @@ class TelegramBot:
                 logger.warning("No Telegram bot token configured")
                 return False
                 
-            request = HTTPRequest(connect_timeout=30, read_timeout=30)
+            request = HTTPXRequest(connect_timeout=30, read_timeout=30)
             self.application = (
                 Application.builder()
                 .token(settings.TELEGRAM_BOT_TOKEN)
@@ -46,10 +51,13 @@ class TelegramBot:
             # Add handlers
             self.add_handlers()
             
+            # Initialize the application (required for v20+ webhooks)
+            await self.application.initialize()
+            
             logger.info("Telegram bot initialized successfully")
             return True
         except Exception as e:
-            logger.error(f"Failed to initialize bot: {e}")
+            logger.error(f"Failed to initialize bot: {e}", exc_info=True)
             return False
     
     def add_handlers(self):
@@ -185,8 +193,12 @@ class TelegramBot:
             unique_code = generate_unique_code()
             internal_file_id = generate_unique_code(16)
             
-            # Download file from Telegram - FIXED VERSION
+            # Download file from Telegram - Try fixed version first, fallback to HTTP
             file_path = await self.download_telegram_file_fixed(file_id, internal_file_id)
+            
+            if not file_path:
+                logger.warning("Primary download failed, trying HTTP fallback method...")
+                file_path = await self.download_telegram_file(file_id, internal_file_id)
             
             if not file_path:
                 await processing_msg.edit_text("❌ Failed to download file from Telegram. Please try again.")
@@ -266,14 +278,14 @@ class TelegramBot:
         """Fixed version of file download from Telegram servers"""
         try:
             # Ensure uploads directory exists
-            os.makedirs("uploads", exist_ok=True)
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
             
             file = await self.application.bot.get_file(file_id)
             if not file:
                 logger.error(f"Failed to get file object for file_id: {file_id}")
                 return None
             
-            file_path = os.path.join("uploads", local_filename)
+            file_path = os.path.join(UPLOAD_DIR, local_filename)
             logger.info(f"Downloading file to: {file_path}")
             
             # Download file using the file object's download method
@@ -292,7 +304,7 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Download error for file_id {file_id}: {str(e)}", exc_info=True)
             # Clean up any partial download
-            file_path = os.path.join("uploads", local_filename)
+            file_path = os.path.join(UPLOAD_DIR, local_filename)
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)
@@ -304,14 +316,14 @@ class TelegramBot:
         """Alternative download method using direct HTTP download"""
         try:
             # Ensure uploads directory exists
-            os.makedirs("uploads", exist_ok=True)
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
             
             file = await self.application.bot.get_file(file_id)
             if not file:
                 logger.error(f"Failed to get file object for file_id: {file_id}")
                 return None
             
-            file_path = os.path.join("uploads", local_filename)
+            file_path = os.path.join(UPLOAD_DIR, local_filename)
             
             # Get the file URL from Telegram
             file_url = file.file_path
@@ -345,7 +357,7 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"HTTP download error: {str(e)}", exc_info=True)
             # Clean up
-            file_path = os.path.join("uploads", local_filename)
+            file_path = os.path.join(UPLOAD_DIR, local_filename)
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)
@@ -400,7 +412,7 @@ class TelegramBot:
                 )
                 
         except Exception as e:
-            logger.error(f"Send file error: {str(e)}")
+            logger.error(f"Send file error: {str(e)}", exc_info=True)
             await update.message.reply_text("❌ Error sending file.")
     
     async def admin_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -428,6 +440,9 @@ class TelegramBot:
             total_storage_result = await db.files.aggregate(storage_pipeline).to_list(length=1)
             storage_size = total_storage_result[0]["total_size"] if total_storage_result else 0
             
+            # Add timestamp to ensure message is always different when refreshing
+            current_time = datetime.utcnow().strftime("%H:%M:%S UTC")
+            
             admin_text = f"""
 🏠 <b>Admin Panel</b>
 
@@ -437,6 +452,8 @@ class TelegramBot:
 • Storage Used: <code>{format_size(storage_size)}</code>
 
 ⚡ <b>Quick Actions:</b>
+
+<i>Last updated: {current_time}</i>
             """
             
             keyboard = [
@@ -449,11 +466,19 @@ class TelegramBot:
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             if update.callback_query:
-                await update.callback_query.edit_message_text(
-                    admin_text,
-                    reply_markup=reply_markup,
-                    parse_mode='HTML'
-                )
+                try:
+                    await update.callback_query.edit_message_text(
+                        admin_text,
+                        reply_markup=reply_markup,
+                        parse_mode='HTML'
+                    )
+                except Exception as edit_error:
+                    # Handle the "message is not modified" error gracefully
+                    error_msg = str(edit_error).lower()
+                    if "message is not modified" in error_msg or "message content and reply markup are exactly the same" in error_msg:
+                        await update.callback_query.answer("✅ Stats are up to date!", show_alert=False)
+                    else:
+                        raise edit_error
             else:
                 await update.message.reply_text(
                     admin_text,
@@ -461,10 +486,13 @@ class TelegramBot:
                     parse_mode='HTML'
                 )
         except Exception as e:
-            logger.error(f"Admin panel error: {e}")
+            logger.error(f"Admin panel error: {e}", exc_info=True)
             error_msg = "❌ Error loading admin panel"
             if update.callback_query:
-                await update.callback_query.edit_message_text(error_msg)
+                try:
+                    await update.callback_query.edit_message_text(error_msg)
+                except:
+                    await update.callback_query.answer(error_msg, show_alert=True)
             else:
                 await update.message.reply_text(error_msg)
     
@@ -499,7 +527,6 @@ class TelegramBot:
             file_data = await db.files.find_one({"file_id": file_id})
             if file_data:
                 # Delete physical file
-                import os
                 if os.path.exists(file_data["file_path"]):
                     os.remove(file_data["file_path"])
                 
@@ -510,7 +537,7 @@ class TelegramBot:
             else:
                 await update.callback_query.edit_message_text("❌ File not found.")
         except Exception as e:
-            logger.error(f"Delete file error: {e}")
+            logger.error(f"Delete file error: {e}", exc_info=True)
             await update.callback_query.edit_message_text("❌ Error deleting file.")
     
     async def set_webhook(self, url: str):
@@ -524,7 +551,7 @@ class TelegramBot:
             await self.application.bot.set_webhook(webhook_url)
             logger.info(f"Webhook set to: {webhook_url}")
         except Exception as e:
-            logger.error(f"Failed to set webhook: {e}")
+            logger.error(f"Failed to set webhook: {e}", exc_info=True)
 
 # Global bot instance
 telegram_bot = TelegramBot()
