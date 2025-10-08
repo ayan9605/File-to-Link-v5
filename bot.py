@@ -345,6 +345,9 @@ class TelegramBot:
             total_storage_result = await db.files.aggregate(storage_pipeline).to_list(length=1)
             storage_size = total_storage_result[0]["total_size"] if total_storage_result else 0
             
+            # Add timestamp to ensure message is always different when refreshing
+            current_time = datetime.utcnow().strftime("%H:%M:%S UTC")
+            
             admin_text = f"""
 🏠 <b>Admin Panel</b>
 
@@ -354,6 +357,8 @@ class TelegramBot:
 • Storage Used: <code>{format_size(storage_size)}</code>
 
 ⚡ <b>Quick Actions:</b>
+
+<i>Last updated: {current_time}</i>
             """
             
             keyboard = [
@@ -366,11 +371,19 @@ class TelegramBot:
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             if update.callback_query:
-                await update.callback_query.edit_message_text(
-                    admin_text,
-                    reply_markup=reply_markup,
-                    parse_mode='HTML'
-                )
+                try:
+                    await update.callback_query.edit_message_text(
+                        admin_text,
+                        reply_markup=reply_markup,
+                        parse_mode='HTML'
+                    )
+                except Exception as edit_error:
+                    # Handle the "message is not modified" error gracefully
+                    error_msg = str(edit_error).lower()
+                    if "message is not modified" in error_msg or "message content and reply markup are exactly the same" in error_msg:
+                        await update.callback_query.answer("✅ Stats are up to date!", show_alert=False)
+                    else:
+                        raise edit_error
             else:
                 await update.message.reply_text(
                     admin_text,
@@ -381,7 +394,10 @@ class TelegramBot:
             logger.error(f"Admin panel error: {e}")
             error_msg = "❌ Error loading admin panel"
             if update.callback_query:
-                await update.callback_query.edit_message_text(error_msg)
+                try:
+                    await update.callback_query.edit_message_text(error_msg)
+                except:
+                    await update.callback_query.answer(error_msg, show_alert=True)
             else:
                 await update.message.reply_text(error_msg)
     
