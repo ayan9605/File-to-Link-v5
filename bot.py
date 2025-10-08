@@ -260,15 +260,29 @@ class TelegramBot:
     async def download_telegram_file(self, file_id: str, local_filename: str) -> str:
         """Download file from Telegram servers"""
         try:
+            # Ensure uploads directory exists
+            uploads_dir = "uploads"
+            os.makedirs(uploads_dir, exist_ok=True)
+            
+            # Get file from Telegram
             file = await self.application.bot.get_file(file_id)
-            file_path = os.path.join("uploads", local_filename)
+            file_path = os.path.join(uploads_dir, local_filename)
             
             # Download file
+            logger.info(f"Starting download for file_id: {file_id}")
             await file.download_to_drive(file_path)
             
+            # Verify file was actually downloaded
+            if not os.path.exists(file_path):
+                logger.error(f"File download completed but file not found at: {file_path}")
+                return None
+            
+            file_size = os.path.getsize(file_path)
+            logger.info(f"File downloaded successfully: {file_path} ({file_size} bytes)")
             return file_path
+            
         except Exception as e:
-            logger.error(f"Download error: {str(e)}")
+            logger.error(f"Download error for file_id {file_id}: {str(e)}", exc_info=True)
             return None
     
     async def send_file_via_code(self, update: Update, context: ContextTypes.DEFAULT_TYPE, unique_code: str):
