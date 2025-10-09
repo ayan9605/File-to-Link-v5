@@ -8,8 +8,6 @@ from telegram.ext import (
     filters
 )
 from telegram.request import HTTPXRequest
-import aiohttp
-import aiofiles
 from datetime import datetime
 from typing import Dict, Any
 
@@ -23,11 +21,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-# Ensure uploads directory exists at module level
-UPLOAD_DIR = os.path.abspath("uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-logger.info(f"Uploads directory initialized: {UPLOAD_DIR}")
 
 class TelegramBot:
     def __init__(self):
@@ -93,7 +86,7 @@ class TelegramBot:
    - 🤖 <b>Bot Access</b> (Private)
 
 <b>Features:</b>
-• Support for large files
+• Support for files up to 2GB (4GB with Premium)
 • Fast download links
 • Secure file sharing
 • No registration required
@@ -137,6 +130,10 @@ class TelegramBot:
 • Audio (MP3, WAV, OGG, etc.)
 • Archives (ZIP, RAR, etc.)
 
+<b>File size limits:</b>
+• Regular: Up to 2 GB
+• Telegram Premium: Up to 4 GB
+
 <b>Need help?</b> Contact the administrator.
         """
 
@@ -148,7 +145,6 @@ class TelegramBot:
 
     async def photo_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle photo files"""
-        # Get the largest photo size
         photo = update.message.photo[-1]
         await self.process_upload(update, context, photo, is_photo=True)
 
@@ -161,7 +157,7 @@ class TelegramBot:
         await self.process_upload(update, context, update.message.audio)
 
     async def process_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE, file_obj, is_photo=False):
-        """Process file upload and generate links"""
+        """Process file upload WITHOUT downloading - directly forward to channel"""
         user = update.effective_user
         message = update.message
 
@@ -177,10 +173,8 @@ class TelegramBot:
                 mime_type = "image/jpeg"
             else:
                 file_id = file_obj.file_id
-                # Fix: Handle None filename and add file extension based on mime type
                 base_file_name = getattr(file_obj, 'file_name', None)
                 if not base_file_name:
-                    # Try to determine extension from mime type
                     mime_type = getattr(file_obj, 'mime_type', None) or 'application/octet-stream'
                     extension = ''
                     if mime_type:
@@ -203,100 +197,81 @@ class TelegramBot:
 
             # Check file size
             if file_size and file_size > settings.MAX_FILE_SIZE:
-                await processing_msg.edit_text(f"❌ File too large. Maximum size is {format_size(settings.MAX_FILE_SIZE)}.")
+                await processing_msg.edit_text(
+                    f"❌ File too large. Maximum size is {format_size(settings.MAX_FILE_SIZE)}."
+                )
+                return
+
+            # Check if private channel is configured
+            if not settings.PRIVATE_CHANNEL_ID or settings.PRIVATE_CHANNEL_ID == 0:
+                await processing_msg.edit_text(
+                    "❌ Private channel not configured. Please contact administrator."
+                )
+                logger.error("PRIVATE_CHANNEL_ID not set in environment variables!")
                 return
 
             # Generate unique identifiers
             unique_code = generate_unique_code()
             internal_file_id = generate_unique_code(16)
 
-            # Download file from Telegram - Try fixed version first, fallback to HTTP
-            file_path = await self.download_telegram_file_fixed(file_id, internal_file_id)
+            # DIRECTLY forward file to private channel (NO DOWNLOAD!)
+            try:
+                logger.info(f"Forwarding file {file_id} to private channel {settings.PRIVATE_CHANNEL_ID}")
 
-            if not file_path:
-                logger.warning("Primary download failed, trying HTTP fallback method...")
-                file_path = await self.download_telegram_file(file_id, internal_file_id)
+                # Send file to channel based on type
+                if is_photo:
+                    channel_msg = await context.bot.send_photo(
+                        chat_id=settings.PRIVATE_CHANNEL_ID,
+                        photo=file_id,
+                        caption=f"📁 {safe_filename}\n🔑 Code: {unique_code}\n👤 User: {user.id}\n📅 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                elif hasattr(file_obj, 'video'):
+                    channel_msg = await context.bot.send_video(
+                        chat_id=settings.PRIVATE_CHANNEL_ID,
+                        video=file_id,
+                        caption=f"📁 {safe_filename}\n🔑 Code: {unique_code}\n👤 User: {user.id}\n📅 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                elif hasattr(file_obj, 'audio'):
+                    channel_msg = await context.bot.send_audio(
+                        chat_id=settings.PRIVATE_CHANNEL_ID,
+                        audio=file_id,
+                        caption=f"📁 {safe_filename}\n🔑 Code: {unique_code}\n👤 User: {user.id}\n📅 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                else:
+                    channel_msg = await context.bot.send_document(
+                        chat_id=settings.PRIVATE_CHANNEL_ID,
+                        document=file_id,
+                        caption=f"📁 {safe_filename}\n🔑 Code: {unique_code}\n👤 User: {user.id}\n📅 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
 
-            if not file_path:
-                await processing_msg.edit_text("❌ Failed to download file from Telegram. Please try again.")
+                logger.info(f"✅ File forwarded successfully. Message ID: {channel_msg.message_id}")
+
+            except Exception as channel_err:
+                logger.error(f"❌ Failed to forward file to channel: {channel_err}", exc_info=True)
+                await processing_msg.edit_text(
+                    "❌ Failed to upload file to storage. Please try again or contact administrator."
+                )
                 return
 
-            # Verify file was actually downloaded
-            if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                await processing_msg.edit_text("❌ Downloaded file is empty or corrupted. Please try again.")
-                # Clean up empty file
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                return
-
-            # Store in database
+            # Store in database (NO file_path, only channel info)
             db = get_database()
             file_data = {
                 "file_id": internal_file_id,
                 "unique_code": unique_code,
                 "original_name": safe_filename,
-                "file_path": file_path,
-                "file_size": file_size or os.path.getsize(file_path),
-                "file_hash": "",  # Would calculate in production
+                "file_size": file_size,
+                "file_hash": "",
                 "uploader_id": str(user.id),
                 "upload_time": datetime.utcnow(),
                 "mime_type": mime_type,
                 "download_count": 0,
                 "telegram_file_id": file_id,
-                "channel_message_id": None,  # NEW: For private channel storage
-                "channel_id": None  # NEW: For private channel storage
+                "channel_message_id": channel_msg.message_id,
+                "channel_id": settings.PRIVATE_CHANNEL_ID,
+                "stored_in_channel": True
             }
 
             await db.files.insert_one(file_data)
-
-            # NEW: Forward file to private channel for permanent storage
-            if settings.PRIVATE_CHANNEL_ID and settings.PRIVATE_CHANNEL_ID != 0:
-                try:
-                    logger.info(f"Forwarding file to private channel: {settings.PRIVATE_CHANNEL_ID}")
-
-                    # Send file to channel based on type
-                    if is_photo:
-                        channel_msg = await context.bot.send_photo(
-                            chat_id=settings.PRIVATE_CHANNEL_ID,
-                            photo=file_id,
-                            caption=f"📁 {safe_filename}\n🔑 Code: {unique_code}\n👤 User: {user.id}\n📅 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
-                    elif hasattr(file_obj, 'video'):
-                        channel_msg = await context.bot.send_video(
-                            chat_id=settings.PRIVATE_CHANNEL_ID,
-                            video=file_id,
-                            caption=f"📁 {safe_filename}\n🔑 Code: {unique_code}\n👤 User: {user.id}\n📅 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
-                    elif hasattr(file_obj, 'audio'):
-                        channel_msg = await context.bot.send_audio(
-                            chat_id=settings.PRIVATE_CHANNEL_ID,
-                            audio=file_id,
-                            caption=f"📁 {safe_filename}\n🔑 Code: {unique_code}\n👤 User: {user.id}\n📅 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
-                    else:
-                        channel_msg = await context.bot.send_document(
-                            chat_id=settings.PRIVATE_CHANNEL_ID,
-                            document=file_id,
-                            caption=f"📁 {safe_filename}\n🔑 Code: {unique_code}\n👤 User: {user.id}\n📅 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
-
-                    # Update database with channel message info
-                    await db.files.update_one(
-                        {"file_id": internal_file_id},
-                        {"$set": {
-                            "channel_message_id": channel_msg.message_id,
-                            "channel_id": settings.PRIVATE_CHANNEL_ID,
-                            "stored_in_channel": True
-                        }}
-                    )
-
-                    logger.info(f"✅ File forwarded to channel successfully. Message ID: {channel_msg.message_id}")
-
-                except Exception as channel_err:
-                    logger.error(f"❌ Failed to forward file to channel: {channel_err}", exc_info=True)
-                    # File still works from local storage as fallback
-            else:
-                logger.warning("⚠️ Private channel not configured. Files stored locally only.")
 
             # Generate links
             links = generate_links(internal_file_id, unique_code)
@@ -304,12 +279,12 @@ class TelegramBot:
             # Escape filename for safe display
             escaped_filename = html.escape(safe_filename)
 
-            # Send success message with links using HTML formatting
+            # Send success message
             success_text = f"""
 ✅ <b>File uploaded successfully!</b>
 
 📁 <b>File:</b> <code>{escaped_filename}</code>
-📦 <b>Size:</b> {format_size(file_data['file_size'])}
+📦 <b>Size:</b> {format_size(file_size)}
 
 <b>Download Links:</b>
 🚀 <b>CDN Link:</b> <code>{links['cloudflare']}</code>
@@ -342,97 +317,6 @@ class TelegramBot:
             except:
                 await message.reply_text("❌ An error occurred while processing your file.")
 
-    async def download_telegram_file_fixed(self, file_id: str, local_filename: str) -> str:
-        """Fixed version of file download from Telegram servers"""
-        try:
-            # Ensure uploads directory exists
-            os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-            file = await self.application.bot.get_file(file_id)
-            if not file:
-                logger.error(f"Failed to get file object for file_id: {file_id}")
-                return None
-
-            file_path = os.path.join(UPLOAD_DIR, local_filename)
-            logger.info(f"Downloading file to: {file_path}")
-
-            # Download file using the file object's download method
-            await file.download_to_drive(custom_path=file_path)
-
-            # Verify download was successful
-            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-                logger.info(f"Successfully downloaded file: {file_path} ({os.path.getsize(file_path)} bytes)")
-                return file_path
-            else:
-                logger.error(f"Downloaded file is empty or doesn't exist: {file_path}")
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                return None
-
-        except Exception as e:
-            logger.error(f"Download error for file_id {file_id}: {str(e)}", exc_info=True)
-            # Clean up any partial download
-            file_path = os.path.join(UPLOAD_DIR, local_filename)
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except:
-                    pass
-            return None
-
-    async def download_telegram_file(self, file_id: str, local_filename: str) -> str:
-        """Alternative download method using direct HTTP download"""
-        try:
-            # Ensure uploads directory exists
-            os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-            file = await self.application.bot.get_file(file_id)
-            if not file:
-                logger.error(f"Failed to get file object for file_id: {file_id}")
-                return None
-
-            file_path = os.path.join(UPLOAD_DIR, local_filename)
-
-            # Get the file URL from Telegram
-            file_url = file.file_path
-            if not file_url:
-                logger.error(f"No file_path available for file_id: {file_id}")
-                return None
-
-            # Construct full URL
-            full_url = f"https://api.telegram.org/file/bot{settings.TELEGRAM_BOT_TOKEN}/{file_url}"
-
-            # Download using aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.get(full_url) as response:
-                    if response.status == 200:
-                        # Write file in chunks to handle large files
-                        async with aiofiles.open(file_path, 'wb') as f:
-                            async for chunk in response.content.iter_chunked(8192):
-                                await f.write(chunk)
-
-                        # Verify download
-                        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-                            logger.info(f"Successfully downloaded file via HTTP: {file_path}")
-                            return file_path
-                        else:
-                            logger.error("Downloaded file is empty")
-                            return None
-                    else:
-                        logger.error(f"HTTP download failed with status: {response.status}")
-                        return None
-
-        except Exception as e:
-            logger.error(f"HTTP download error: {str(e)}", exc_info=True)
-            # Clean up
-            file_path = os.path.join(UPLOAD_DIR, local_filename)
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except:
-                    pass
-            return None
-
     async def send_file_via_code(self, update: Update, context: ContextTypes.DEFAULT_TYPE, unique_code: str):
         """Send file when user uses bot link with code"""
         db = get_database()
@@ -442,11 +326,11 @@ class TelegramBot:
             await update.message.reply_text("❌ File not found or link expired.")
             return
 
-        # Send file back to user
+        # Send file from channel
         try:
             file_name = file_data["original_name"]
 
-            # NEW: Try to get file from private channel first (PREFERRED METHOD)
+            # Get file from private channel
             if file_data.get('channel_message_id') and file_data.get('channel_id'):
                 try:
                     logger.info(f"Retrieving file from channel. Message ID: {file_data['channel_message_id']}")
@@ -456,7 +340,7 @@ class TelegramBot:
                         chat_id=update.effective_chat.id,
                         from_chat_id=file_data['channel_id'],
                         message_id=file_data['channel_message_id'],
-                        caption=f"📁 {file_name}\n📦 Size: {format_size(file_data['file_size'])}\n\n✅ Retrieved from permanent storage"
+                        caption=f"📁 {file_name}\n📦 Size: {format_size(file_data['file_size'])}\n\n✅ Retrieved from storage"
                     )
 
                     # Update download count
@@ -470,41 +354,13 @@ class TelegramBot:
 
                 except Exception as channel_err:
                     logger.error(f"Failed to copy from channel: {channel_err}", exc_info=True)
-                    await update.message.reply_text("⚠️ Could not retrieve from channel storage. Trying local backup...")
-                    # Fall through to local file method
-
-            # FALLBACK: Try local file (for old files or if channel retrieval failed)
-            file_path = file_data.get("file_path")
-            if not file_path or not os.path.exists(file_path):
-                await update.message.reply_text("❌ File not available. Neither channel nor local storage has this file.")
-                return
-
-            # Escape filename for safe display
-            escaped_filename = html.escape(file_name)
-
-            # For large files, we might want to send the link instead
-            file_size = os.path.getsize(file_path)
-            if file_size > 45 * 1024 * 1024:  # 45MB Telegram limit
-                links = generate_links(file_data["file_id"], unique_code)
-                await update.message.reply_text(
-                    f"📁 <b>File:</b> {escaped_filename}\n"
-                    f"📦 <b>Size:</b> {format_size(file_size)}\n\n"
-                    f"📥 <b>Download:</b> {links['cloudflare']}",
-                    parse_mode='HTML'
-                )
+                    await update.message.reply_text(
+                        "❌ Could not retrieve file from storage. File may have been deleted."
+                    )
+                    return
             else:
-                # Send file directly from local storage
-                await update.message.reply_document(
-                    document=open(file_path, 'rb'),
-                    filename=file_name,
-                    caption=f"📁 {file_name}\n📦 {format_size(file_size)}"
-                )
-
-            # Update download count
-            await db.files.update_one(
-                {"unique_code": unique_code},
-                {"$inc": {"download_count": 1}}
-            )
+                await update.message.reply_text("❌ File information incomplete. Cannot retrieve file.")
+                return
 
         except Exception as e:
             logger.error(f"Send file error: {str(e)}", exc_info=True)
@@ -535,7 +391,6 @@ class TelegramBot:
             total_storage_result = await db.files.aggregate(storage_pipeline).to_list(length=1)
             storage_size = total_storage_result[0]["total_size"] if total_storage_result else 0
 
-            # Add timestamp to ensure message is always different when refreshing
             current_time = datetime.utcnow().strftime("%H:%M:%S UTC")
 
             admin_text = f"""
@@ -546,7 +401,8 @@ class TelegramBot:
 • Total Users: <code>{total_users}</code>
 • Storage Used: <code>{format_size(storage_size)}</code>
 
-⚡ <b>Quick Actions:</b>
+⚡ <b>Storage:</b> Telegram Private Channel
+🔧 <b>Status:</b> All files stored in cloud
 
 <i>Last updated: {current_time}</i>
             """
@@ -568,9 +424,8 @@ class TelegramBot:
                         parse_mode='HTML'
                     )
                 except Exception as edit_error:
-                    # Handle the "message is not modified" error gracefully
                     error_msg = str(edit_error).lower()
-                    if "message is not modified" in error_msg or "message content and reply markup are exactly the same" in error_msg:
+                    if "message is not modified" in error_msg:
                         await update.callback_query.answer("✅ Stats are up to date!", show_alert=False)
                     else:
                         raise edit_error
@@ -621,9 +476,15 @@ class TelegramBot:
         try:
             file_data = await db.files.find_one({"file_id": file_id})
             if file_data:
-                # Delete physical file
-                if os.path.exists(file_data["file_path"]):
-                    os.remove(file_data["file_path"])
+                # Delete from channel if possible
+                if file_data.get('channel_message_id') and file_data.get('channel_id'):
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=file_data['channel_id'],
+                            message_id=file_data['channel_message_id']
+                        )
+                    except Exception as del_err:
+                        logger.warning(f"Could not delete from channel: {del_err}")
 
                 # Delete database record
                 await db.files.delete_one({"file_id": file_id})
