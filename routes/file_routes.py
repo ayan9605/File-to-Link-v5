@@ -1,27 +1,26 @@
-from fastapi import APIRouter, Request, HTTPException, Response, Depends, UploadFile, File
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import APIRouter, Request, HTTPException, Response, UploadFile, File
+from fastapi.responses import StreamingResponse
 import os
 import aiofiles
 import secrets
-from typing import Optional
 import mimetypes
 from datetime import datetime
 import hashlib
 import logging
 import io
+from typing import Optional
 
 from config import settings
 from db import get_database
-from utils import helpers  # assuming helpers has generate_links, format, validate, sanitize functions
 from utils.helpers import (
     generate_unique_code,
-    validate,
+    validate_file_type,
     generate_links,
     limiter,
     format_size,
     sanitize_filename
 )
-from bot import telegram_bot  # Access to telegram bot for API calls
+from bot import telegram_bot
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ async def upload_file(
 
     safe_filename = sanitize_filename(file.filename)
 
-    if not validate(safe_filename):
+    if not validate_file_type(safe_filename):
         raise HTTPException(400, "File type not allowed")
 
     file_id = secrets.token_urlsafe(16)
@@ -63,7 +62,7 @@ async def upload_file(
                     await f.close()
                     if os.path.exists(file_path):
                         os.remove(file_path)
-                    raise HTTPException(413, f"File too large. Maximum {format_size(settings.MAX_FILE_SIZE)}")
+                    raise HTTPException(413, f"File too large. Maximum size is {format_size(settings.MAX_FILE_SIZE)}")
                 hash_md5.update(chunk)
                 await f.write(chunk)
 
@@ -104,7 +103,6 @@ async def upload_file(
             os.remove(file_path)
         raise HTTPException(500, f"Upload failed: {e}")
 
-
 async def download_file_handler(file_id: str, code: str, request: Request, response: Response):
     db = get_database()
     file_data = await db.files.find_one({"file_id": file_id, "unique_code": code})
@@ -112,23 +110,24 @@ async def download_file_handler(file_id: str, code: str, request: Request, respo
     if not file_data:
         raise HTTPException(404, "File not found")
 
-    # Attempt retrieving from Telegram CDN using telegram bot api
+    # Try to serve from Telegram CDN if present
     if file_data.get("telegram_file_id") and telegram_bot.application:
         try:
             bot = telegram_bot.application.bot
             telegram_file = await bot.get_file(file_data["telegram_file_id"])
-            file_path = telegram_file.file_path
-            if not file_path:
-                raise HTTPException(404, "Telegram file url not found")
+            file_url = telegram_file.file_path
+            if not file_url:
+                raise HTTPException(404, "Telegram file URL not found")
 
-            telegram_url = f"https://api.telegram.org/file/bot{settings.TELEGRAM_TOKEN}/{file_path}"
+            telegram_url = f"https://api.telegram.org/file/bot{settings.TELEGRAM_BOT_TOKEN}/{file_url}"
 
             import httpx
+
             async def streamer():
                 async with httpx.AsyncClient() as client:
                     async with client.stream("GET", telegram_url) as resp:
                         if resp.status_code != 200:
-                            raise HTTPException(resp.status_code, "Error fetching from Telegram")
+                            raise HTTPException(resp.status_code, "Failed to fetch from Telegram CDN")
                         async for chunk in resp.aiter_bytes():
                             yield chunk
 
@@ -137,23 +136,29 @@ async def download_file_handler(file_id: str, code: str, request: Request, respo
                 "Content-Type": file_data.get("mime_type", "application/octet-stream"),
                 "Content-Length": str(file_data.get("file_size", 0)),
             }
-            return StreamingResponse(streamer(), headers=headers)
+
+            logger.info(f"Streaming file {file_id} from Telegram CDN")
+
+            return StreamingResponse(streamer(), headers=headers, media_type=headers["Content-Type"])
 
         except Exception as e:
-            logger.error(f"Failed streaming from Telegram CDN: {e}")
+            logger.error(f"Failed to stream from Telegram CDN: {e}")
+            # fallback to local storage below
 
-    # Otherwise, fallback serving local file
+    # Fallback to local file serving
     file_path = file_data.get("file_path")
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(410, "File no longer available")
 
     import aiofiles
-    async def file_stream():
+
+    async def file_sender():
         async with aiofiles.open(file_path, "rb") as f:
-            chunk = await f.read(4096)
-            while chunk:
-                yield chunk
+            while True:
                 chunk = await f.read(4096)
+                if not chunk:
+                    break
+                yield chunk
 
     headers = {
         "Content-Disposition": f'attachment; filename="{file_data["original_name"]}"',
@@ -161,13 +166,13 @@ async def download_file_handler(file_id: str, code: str, request: Request, respo
         "Content-Length": str(os.path.getsize(file_path)),
     }
 
-    return StreamingResponse(file_stream(), headers=headers)
+    logger.info(f"Streaming file {file_id} from local disk")
 
+    return StreamingResponse(file_sender(), headers=headers, media_type=headers["Content-Type"])
 
 @router.get("/dl/{file_id}")
 async def download_route(file_id: str, code: str, request: Request, response: Response):
     return await download_file_handler(file_id, code, request, response)
-
 
 @router.get("/random")
 @limiter.limit("10/minute")
@@ -177,22 +182,18 @@ async def random_file(request: Request):
     random_files = await cursor.to_list(length=1)
     if not random_files:
         raise HTTPException(404, "No files available")
-    file = random_files[0]
-    links = generate_links(file["file_id"], file["unique_code"])
-    return {"file": file, "links": links}
-
+    file_info = random_files[0]
+    links = generate_links(file_info["file_id"], file_info["unique_code"])
+    return {"file": file_info, "links": links}
 
 @router.get("/info/{file_id}")
 async def file_info(file_id: str, code: str):
     db = get_database()
-    file_info = await db.files.find_one(
-        {"file_id": file_id, "unique_code": code}, {"_id": 0, "file_path": 0}
-    )
-    if not file_info:
+    data = await db.files.find_one({"file_id": file_id, "unique_code": code}, {"_id": 0, "file_path": 0})
+    if not data:
         raise HTTPException(404, "File not found")
-    return file_info
-
+    return data
 
 @router.get("/health")
-async def health():
+async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
