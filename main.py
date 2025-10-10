@@ -82,21 +82,11 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
+# --- CORRECTED ROUTING ---
 # Include routers
-app.include_router(file_routes.router, prefix="/api/v1")
 app.include_router(admin_routes.router, prefix="/admin")
-
-# Direct download route for CDN compatibility (without /api/v1 prefix)
-@app.get("/dl/{file_id}")
-async def direct_download_file(
-    file_id: str,
-    code: str,
-    request: Request,
-    response: Response
-):
-    """Direct download route for CDN and Render links"""
-    from routes.file_routes import download_file_handler
-    return await download_file_handler(file_id, code, request, response)
+app.include_router(file_routes.router, prefix="/api/v1") # For API-specific routes
+app.include_router(file_routes.router, tags=["Direct Downloads"]) # For direct /dl links
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
