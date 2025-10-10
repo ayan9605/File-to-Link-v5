@@ -73,7 +73,7 @@ async def upload_file(
             "download_count": 0,
         }
 
-        await db.insert_one(file_data)
+        await db.files.insert_one(file_data)
         links = generate_links(file_id, unique_code)
 
         return {
@@ -110,7 +110,8 @@ async def download_file(file_id: str, code: str, request: Request, response: Res
             if not file_path:
                 raise HTTPException(404, "Telegram CDN URL not found")
 
-            url = f"https://api.telegram.org/file/bot{settings.TELEGRAM_TOKEN}/{file_path}"
+            # --- CORRECTED TOKEN VARIABLE ---
+            url = f"https://api.telegram.org/file/bot{settings.TELEGRAM_BOT_TOKEN}/{file_path}"
 
             import httpx
             async def streamer():
