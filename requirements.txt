@@ -5,7 +5,7 @@ pyrogram
 tgcrypto
 motor
 pymongo
-redis
+redis==5.0.1
 pydantic
 python-dotenv
 python-multipart
