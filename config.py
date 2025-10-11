@@ -1,32 +1,57 @@
+# config.py
 import os
-from typing import List
-from dotenv import load_dotenv
+from typing import Optional
+from pydantic import BaseSettings, validator
 
-load_dotenv()
 
-class Settings:
-    MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-    DATABASE_NAME = os.getenv("DATABASE_NAME", "filetolink")
-    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+class Settings(BaseSettings):
+    # Telegram Configuration
+    API_ID: int
+    API_HASH: str
+    BOT_TOKEN: str
+    PRIVATE_CHANNEL_ID: int
     
-    # Parse admin IDs safely
-    admin_ids = os.getenv("TELEGRAM_ADMIN_IDS", "")
-    TELEGRAM_ADMIN_IDS = [int(x.strip()) for x in admin_ids.split(",") if x.strip() and x.strip().isdigit()]
+    # MongoDB Configuration
+    MONGODB_URL: str
+    DATABASE_NAME: str = "filetolink"
     
-    SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-    RENDER_URL = os.getenv("RENDER_URL", "http://localhost:8000")
-    CLOUDFLARE_WORKER_URL = os.getenv("CLOUDFLARE_WORKER_URL", "http://localhost:8000")
-    BOT_USERNAME = os.getenv("BOT_USERNAME", "")
-    PRIVATE_CHANNEL_ID = int(os.getenv("PRIVATE_CHANNEL_ID", "0")) if os.getenv("PRIVATE_CHANNEL_ID") else 0
-    API_RATE_LIMIT = int(os.getenv("API_RATE_LIMIT", "100"))
-    MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "5368709120"))  # 5GB default
+    # Redis Configuration
+    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_PASSWORD: Optional[str] = None
+    REDIS_TTL: int = 300  # 5 minutes default
     
-    ALLOWED_EXTENSIONS = {
-        'images': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'],
-        'videos': ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv'],
-        'audio': ['.mp3', '.wav', '.ogg', '.m4a', '.flac'],
-        'documents': ['.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt'],
-        'archives': ['.zip', '.rar', '.7z', '.tar', '.gz']
-    }
+    # Server Configuration
+    RENDER_URL: str
+    CLOUDFLARE_WORKER_URL: str
+    BOT_USERNAME: str
+    
+    # Security
+    SECRET_KEY: str
+    ADMIN_USERNAME: str
+    ADMIN_PASSWORD: str
+    
+    # Rate Limiting
+    RATE_LIMIT_PER_MINUTE: int = 60
+    
+    # Performance Settings
+    MAX_WORKERS: int = 4
+    WORKER_TIMEOUT: int = 120
+    
+    # Derived settings
+    @property
+    def DATABASE_URI(self) -> str:
+        return self.MONGODB_URL
+    
+    @validator('REDIS_TTL')
+    def validate_redis_ttl(cls, v):
+        if v < 60:
+            raise ValueError('REDIS_TTL must be at least 60 seconds')
+        return v
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
 
+
+# Global settings instance
 settings = Settings()
