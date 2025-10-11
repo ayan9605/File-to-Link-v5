@@ -1,524 +1,436 @@
-# FastAPI + Telegram Bot File-To-Link System V5
+# FileToLink System v8.0 🚀
 
-## 🚀 Complete Production-Ready File Sharing Backend
+A high-performance, production-ready file sharing system that uses Telegram as a distributed, cost-effective file backend with Redis caching and Cloudflare CDN.
 
-A high-performance, async file-to-link delivery system with **triple link generation**, **dual admin panels**, and **CDN integration**.
+![FileToLink System](https://img.shields.io/badge/Version-8.0-success) ![Python](https://img.shields.io/badge/Python-3.8+-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green) ![Redis](https://img.shields.io/badge/Redis-Cached-red)
 
----
+## 🌟 Overview
 
-## ✨ Key Features
+FileToLink is a sophisticated file sharing system that leverages Telegram's MTProto protocol for true streaming capabilities. Unlike traditional file sharing services, it uses Telegram's infrastructure for storage and bandwidth, making it extremely cost-effective while maintaining high performance through Redis caching and Cloudflare CDN.
 
-### 🔗 Triple Link Generation
-Each uploaded file automatically generates **3 working download links**:
-1. **⚡ Cloudflare Worker** → Rocket-fast CDN cached downloads
-2. **🌐 Render (Origin)** → Standard server downloads  
-3. **🤖 Bot Direct Access** → File streamed from private Telegram channel
+### 🎯 Key Features
 
-### 🎛️ Dual Admin Panels
-1. **📱 Telegram Bot Admin Panel** - In-bot admin interface with user management
-2. **💻 Web Admin Dashboard** - Modern responsive web interface with analytics
+- **⚡ True Streaming**: Direct MTProto streaming from Telegram's data centers
+- **🔒 Redis Caching**: Ultra-fast metadata lookups with configurable TTL
+- **🌐 CDN Integration**: Cloudflare Workers for edge caching
+- **🔄 Background Processing**: Non-blocking file uploads for better user experience
+- **📊 Advanced Admin Panel**: Real-time analytics and file management
+- **🔐 Secure Authentication**: JWT-based admin authentication
+- **🚀 Production Ready**: Gunicorn with Uvicorn workers
+- **📱 Mobile Responsive**: Works seamlessly on all devices
+- **📈 Real-time Analytics**: Charts and statistics for system monitoring
 
-### 🚀 Performance Features
-- **Async everything** - FastAPI (ASGI) + Motor + python-telegram-bot v21+
-- **Streaming downloads** - Chunked transfer for large files (>200MB)
-- **HTTP Range support** - Media player compatibility  
-- **CDN caching** - Cloudflare Worker with intelligent caching
-- **Rate limiting** - Per-IP protection against abuse
-- **Auto-scaling** - Handles >100 concurrent operations
-
----
-
-## 🏗️ Architecture Overview
+## 🏗 Architecture
 
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Cloudflare    │    │    Render.com    │    │   MongoDB       │
-│     Worker      │◄──►│   (FastAPI)      │◄──►│    Atlas        │
-│   (CDN Cache)   │    │                  │    │  (Database)     │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         ▲                        ▲                        
-         │                        │                        
-         ▼                        ▼                        
-┌─────────────────┐    ┌──────────────────┐              
-│     Users       │    │   Telegram Bot   │              
-│  (Download)     │    │  (File Upload)   │              
-└─────────────────┘    └──────────────────┘              
+User Upload → Telegram Bot → Background Processing → Private Channel
+      ↓
+Redis Cache ← MongoDB Metadata → FastAPI Streaming → Cloudflare CDN
+      ↓
+    User Download (Multiple Links Available)
 ```
 
----
+### Workflow Details
 
-## 📂 Project Structure
+1. **File Upload**: Users send files to Telegram bot
+2. **Background Processing**: Files are processed asynchronously
+3. **Telegram Storage**: Files stored in private channel
+4. **Metadata Management**: File info stored in MongoDB with Redis caching
+5. **Multiple Download Options**: 
+   - 🌐 Direct server link
+   - 🚀 Cloudflare CDN link
+   - 🤖 Telegram bot link
 
-```
-/app/
-├── main.py                    # FastAPI app, routes, middleware
-├── bot.py                     # Telegram bot (webhook, admin panel)  
-├── db.py                      # MongoDB connection (Motor, async)
-├── config.py                  # Environment variables handler
-├── requirements.txt           # Python dependencies
-├── Procfile                   # Render deployment
-├── render.yaml               # Render configuration
-├── .env.example              # Environment template
-├── worker.js                 # Cloudflare Worker (CDN proxy)
-├── routes/
-│   ├── file_routes.py        # /dl, /upload, /random endpoints
-│   └── admin_routes.py       # Web admin panel endpoints
-├── utils/
-│   └── helpers.py            # Security, file handling utilities
-├── templates/
-│   ├── admin_dashboard.html  # Web admin interface
-│   ├── login.html           # Admin login page
-│   ├── file_management.html # File management UI
-│   └── user_management.html # User management UI
-└── static/
-    ├── admin.css            # Modern dark theme styles
-    └── admin.js             # Admin panel JavaScript
-```
+## 🛠 Technology Stack
 
----
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| **Backend** | FastAPI + Python 3.8+ | High-performance API framework |
+| **Telegram** | Pyrogram | MTProto protocol for true streaming |
+| **Database** | MongoDB + Motor | Async document storage |
+| **Caching** | Redis | High-speed metadata caching |
+| **Server** | Gunicorn + Uvicorn | Production ASGI server |
+| **CDN** | Cloudflare Workers | Edge caching and distribution |
+| **Frontend** | Vanilla JS + Chart.js | Admin panel with real-time charts |
+| **Deployment** | Render.com | Cloud hosting platform |
 
-## 🛠️ Installation & Setup
+## 📦 Installation
 
-### 1. Prerequisites
-- Python 3.11+
-- MongoDB Atlas account
-- Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
-- Cloudflare account (for CDN)
-- Render.com account (for hosting)
+### Prerequisites
 
-### 2. Environment Setup
+- Python 3.8 or higher
+- MongoDB database (Atlas recommended)
+- Redis server
+- Telegram Bot Token
+- Telegram API ID & Hash
 
-Copy `.env.example` to `.env` and configure:
+### Step 1: Clone and Setup
 
 ```bash
-# Database
-MONGODB_URL=mongodb+srv://username:password@cluster.mongodb.net/
-DATABASE_NAME=filetolinkv5
+# Clone the repository
+git clone https://github.com/yourusername/filetolink-v8.git
+cd filetolink-v8
 
-# Telegram Bot  
-BOT_TOKEN=123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ
-BOT_USERNAME=your_bot_username
-CHANNEL_ID=-1001234567890  # Private channel for storage
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Admin
-SUPER_ADMIN_ID=123456789  # Your Telegram user ID
-WEB_ADMIN_SECRET=your_secure_password
-
-# URLs
-BASE_URL=https://filetolinkv5.onrender.com
-CLOUDFLARE_URL=https://filetolinkv5.username.workers.dev
-
-# Security
-SECRET_KEY=your_super_secret_key_here_32_chars_min
-```
-
-### 3. Local Development
-
-```bash
 # Install dependencies
 pip install -r requirements.txt
-
-# Run the application
-uvicorn main:app --reload --port 8000
-
-# Set webhook (replace with your ngrok URL for testing)
-curl -X POST "https://api.telegram.org/bot{BOT_TOKEN}/setWebhook" \
-     -H "Content-Type: application/json" \
-     -d '{"url": "https://yourapp.ngrok.io/webhook/{BOT_TOKEN_SUFFIX}"}'
 ```
 
----
+### Step 2: Environment Configuration
 
-## 🚀 Deployment Guide
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Edit .env with your configuration
+nano .env
+```
+
+### Step 3: Environment Variables
+
+```bash
+# Telegram Configuration
+API_ID=123456
+API_HASH="your_api_hash_here"
+BOT_TOKEN="your_bot_token_here"
+PRIVATE_CHANNEL_ID=-1001234567890
+
+# MongoDB Configuration
+MONGODB_URL="mongodb+srv://username:password@cluster.mongodb.net/filetolink?retryWrites=true&w=majority"
+DATABASE_NAME="filetolink"
+
+# Redis Configuration
+REDIS_URL="redis://localhost:6379"
+REDIS_PASSWORD="your_redis_password"
+REDIS_TTL=300
+
+# Server Configuration
+RENDER_URL="https://your-app.onrender.com"
+CLOUDFLARE_WORKER_URL="https://your-worker.your-subdomain.workers.dev"
+BOT_USERNAME="your_bot_username"
+
+# Security
+SECRET_KEY="your-32-character-secret-key-here"
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD="secure-admin-password"
+
+# Performance
+MAX_WORKERS=4
+WORKER_TIMEOUT=120
+RATE_LIMIT_PER_MINUTE=60
+```
+
+### Step 4: Database Setup
+
+The system will automatically create necessary indexes on first run. Ensure your MongoDB user has read/write permissions.
+
+### Step 5: Run the Application
+
+```bash
+# Development mode
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# Production mode
+chmod +x start.sh
+./start.sh
+```
+
+## 🚀 Deployment
 
 ### Option 1: Render.com (Recommended)
 
-1. **Fork this repository** to your GitHub
-2. **Connect to Render.com** and create a new web service
-3. **Set environment variables** in Render dashboard:
-   - `MONGODB_URL` - Your MongoDB Atlas connection string
-   - `BOT_TOKEN` - From @BotFather  
-   - `BOT_USERNAME` - Your bot username
-   - `CHANNEL_ID` - Private channel ID for file storage
-   - `SUPER_ADMIN_ID` - Your Telegram user ID
-   - `SECRET_KEY` - Generate a secure random string
-   - `WEB_ADMIN_SECRET` - Admin panel password
-4. **Deploy** - Render will automatically build and deploy
+1. **Create Web Service** on Render
+2. **Connect your GitHub repository**
+3. **Build Command**: `pip install -r requirements.txt`
+4. **Start Command**: `chmod +x start.sh && ./start.sh`
+5. **Add Environment Variables** from your `.env` file
 
-### Option 2: Manual Deployment
+### Option 2: Other Platforms
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run with production server
-gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
-```
+The application can be deployed on any platform supporting Python:
+- Heroku
+- Railway
+- DigitalOcean App Platform
+- AWS Elastic Beanstalk
 
 ### Cloudflare Worker Setup
 
-1. Create a new Cloudflare Worker
-2. Replace the worker code with `worker.js`
-3. Update `BACKEND_URL` to your deployed API URL
-4. Set up custom domain (optional): `filetolinkv5.yourdomain.com`
+1. Create a new Worker in Cloudflare dashboard
+2. Copy the `cloudflare-worker.js` content
+3. Deploy with your Render URL
+4. (Optional) Set up custom domain
 
----
+## 📊 Admin Panel
 
-## 🎯 Usage Guide
+Access the admin panel at: `https://your-domain.com/admin`
 
-### 📤 File Upload (Telegram Bot)
+### Features
 
-1. Start your bot: `/start`  
-2. Send any file (document, photo, video, audio)
-3. Bot processes and generates **3 download links**:
-   - ⚡ **Fast**: `https://filetolinkv5.username.workers.dev/dl/{id}?code={code}`
-   - 🌐 **Normal**: `https://filetolinkv5.onrender.com/api/dl/{id}?code={code}`  
-   - 🤖 **Bot**: `https://t.me/your_bot?start={code}`
+- **📈 Real-time Statistics**: Files, downloads, storage usage
+- **📊 Interactive Charts**: Uploads, downloads, file types
+- **🔍 File Management**: Search, view, and delete files
+- **👥 User Analytics**: Unique users and their activity
+- **🔄 Cache Management**: Redis memory usage and TTL settings
 
-### 📥 File Download
+### Default Credentials
 
-**Method 1: Direct Links**
-```bash
-curl -L "https://filetolinkv5.onrender.com/api/dl/{file_id}?code={unique_code}"
-```
+- Username: `admin`
+- Password: `secure-admin-password` (change in production!)
 
-**Method 2: Bot Access**
-- Start bot with code: `/start {unique_code}`
-- Bot sends file directly from private channel
+## 🔧 API Endpoints
 
-**Method 3: API Upload**
-```bash
-curl -X POST "https://filetolinkv5.onrender.com/api/upload" \
-     -H "Authorization: Bearer your_token" \
-     -F "file=@document.pdf" \
-     -F "user_id=123456789"
-```
+### Public Endpoints
 
----
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Health check |
+| `GET` | `/health` | Advanced health check |
+| `GET` | `/dl/{file_id}?code={code}` | Download file |
+| `GET` | `/file/{file_id}/info?code={code}` | Get file info |
 
-## 🎛️ Admin Panel Features
+### Admin Endpoints
 
-### 📱 Telegram Bot Admin Panel
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/admin` | Admin panel HTML |
+| `POST` | `/admin/api/auth/login` | Admin login |
+| `POST` | `/admin/api/auth/logout` | Admin logout |
+| `GET` | `/admin/api/stats` | System statistics |
+| `GET` | `/admin/api/files` | Paginated files list |
+| `DELETE` | `/admin/api/files/{file_id}` | Delete file |
+| `GET` | `/admin/api/charts` | Chart data |
 
-Access via `/admin` command (admin only):
+## 🤖 Bot Commands
 
-- **📊 System Statistics** - Files, users, storage, downloads
-- **👥 User Management** - Block/unblock users, view activity  
-- **📁 File Management** - Delete files, view downloads
-- **📢 Broadcast Messages** - Send announcements to all users
-- **📋 Activity Logs** - Monitor all admin actions
-- **⚙️ Settings** - Configure bot parameters
+- `/start` - Welcome message and file access
+- `/stats` - User statistics
+- Send any file to upload and get shareable links
 
-### 💻 Web Admin Dashboard
+## 🔗 Download Links
 
-Access at: `https://filetolinkv5.onrender.com/admin/dashboard`
+The system generates three types of download links:
 
-**Features:**
-- 🎨 **Modern dark theme** with smooth animations
-- 📊 **Real-time analytics** with Chart.js visualizations  
-- 📁 **File management** with search, filter, bulk actions
-- 👥 **User management** with profiles and statistics
-- 📈 **Download analytics** with trends and insights
-- 🔧 **System health** monitoring and logs
-- 📱 **Fully responsive** design for all devices
+1. **🌐 Direct Link**: `https://your-render-url/dl/{file_id}?code={code}`
+   - Direct streaming from origin server
+   - Uses Redis caching for metadata
 
-**Login:** 
-- Username: `admin`  
-- Password: `{WEB_ADMIN_SECRET}`
+2. **🚀 CDN Link**: `https://your-worker-url/dl/{file_id}?code={code}`
+   - Edge cached via Cloudflare
+   - Faster for popular files
+   - Reduces origin server load
 
----
+3. **🤖 Bot Link**: `https://t.me/your_bot?start={code}`
+   - Direct in-app access
+   - Best for mobile users
+   - No download required
 
-## 📊 API Endpoints
+## ⚡ Performance Optimizations
 
-### File Operations
-```bash
-# Download file
-GET /api/dl/{file_id}?code={unique_code}
+### Redis Caching Strategy
 
-# Upload file  
-POST /api/upload
-
-# Get random file
-GET /api/random
-
-# Search files
-GET /api/search?q={query}
-
-# File info
-GET /api/file/{unique_code}
-```
-
-### Admin Endpoints  
-```bash
-# System stats
-GET /admin/api/stats
-
-# Files list  
-GET /admin/api/files?page=1&limit=50
-
-# Users list
-GET /admin/api/users?page=1&limit=50
-
-# Analytics
-GET /admin/api/analytics?period=7
-
-# Admin logs
-GET /admin/api/logs?page=1&limit=100
-```
-
-### Health Checks
-```bash
-# Application health
-GET /health
-
-# File system health  
-GET /api/health/files
-```
-
----
-
-## ⚙️ Configuration Options
-
-### File Settings
 ```python
-MAX_FILE_SIZE = 2147483648    # 2GB limit
-ALLOWED_EXTENSIONS = [        # Allowed file types
-    "jpg", "jpeg", "png", "gif", "pdf", 
-    "mp4", "mp3", "zip", "doc", "txt"
-]
+# Cache key structure
+file:{file_id}:{unique_code}
+
+# TTL: 5 minutes (configurable)
+# Benefits: Reduces MongoDB queries by 90%+
 ```
 
-### Security Settings
-```python
-RATE_LIMIT_PER_MINUTE = 60   # Per-IP rate limiting
-SECRET_KEY = "your-key"       # JWT/session encryption
-WEB_ADMIN_SECRET = "admin123" # Web admin password
+### Background Processing
+
+- Immediate "Processing..." response to users
+- Asynchronous file handling
+- Non-blocking upload experience
+
+### Database Indexes
+
+```javascript
+// Automatic index creation
+files.unique_code (unique)
+files.file_id (unique) 
+files.upload_date
+files.user_id
+files.file_name (text search)
 ```
 
-### Performance Settings  
-```python
-CACHE_TTL = 3600             # CDN cache duration (1 hour)
-ENABLE_ANALYTICS = True      # Download tracking
-ENABLE_FILE_TTL = False      # Auto-delete old files
-FILE_TTL_DAYS = 30          # File retention period
-```
+## 🛡 Security Features
 
----
-
-## 🔒 Security Features
-
-### 🛡️ Built-in Protection
-- **Rate limiting** - Prevents API abuse
-- **File validation** - Secure file type checking
-- **SQL injection** protection via MongoDB
-- **XSS protection** - Sanitized inputs and outputs
-- **CORS configuration** - Controlled cross-origin access
-- **Secure headers** - CSP, HSTS, X-Frame-Options
-
-### 🔐 Authentication  
-- **Bot admin** - Telegram user ID verification
-- **Web admin** - HTTP Basic Authentication  
-- **API access** - JWT token support (extensible)
-
-### 📁 File Security
-- **Unique codes** - Cryptographically secure file IDs
-- **Private storage** - Files stored in private Telegram channel
-- **Access control** - File owners can delete their uploads
-- **Virus scanning** - Extensible malware detection hooks
-
----
+- **Rate Limiting**: Configurable per-minute limits
+- **Input Validation**: Pydantic models for all inputs
+- **Authentication**: JWT-based admin authentication
+- **CORS Protection**: Configurable origins
+- **Security Headers**: XSS protection, no-sniff, etc.
+- **Environment Variables**: Secure configuration management
 
 ## 📈 Monitoring & Analytics
 
-### 📊 Built-in Metrics
-- **Upload/download** counts and trends
-- **User activity** tracking and retention
-- **File type** distribution analysis  
-- **Geographic** usage patterns
-- **Peak usage** hours identification
-- **Error rates** and system health
+### Health Checks
 
-### 📋 Admin Logging
-- All admin actions automatically logged
-- **User management** operations tracking
-- **File operations** audit trail
-- **System changes** history
-- **Broadcast messages** records
-
----
-
-## 🔧 Advanced Configuration
-
-### Database Indexes
-```javascript
-// Optimized indexes for high performance
-db.files.createIndex({ "file_id": 1, "unique_code": 1 }, { unique: true })
-db.files.createIndex({ "upload_time": -1 })  
-db.files.createIndex({ "file_name": "text" })  // Text search
-db.users.createIndex({ "user_id": 1 }, { unique: true })
-db.analytics.createIndex({ "download_time": -1 })
-```
-
-### Cloudflare Worker Optimizations
-```javascript
-// Intelligent caching strategy
-const CACHE_TTL = 3600;                    // 1 hour base cache
-const STALE_WHILE_REVALIDATE = 86400;      // 24 hour stale serving  
-const MAX_FILE_SIZE = 100 * 1024 * 1024;  // 100MB cache limit
-```
-
-### MongoDB Connection Tuning
-```python
-# Production connection settings
-client = AsyncIOMotorClient(
-    MONGODB_URL,
-    maxPoolSize=50,      # Connection pool size
-    minPoolSize=10,      # Minimum connections  
-    maxIdleTimeMS=45000, # Idle timeout
-    waitQueueTimeoutMS=5000,
-    serverSelectionTimeoutMS=5000
-)
-```
-
----
-
-## 🚨 Troubleshooting
-
-### Common Issues
-
-**Bot not responding**
 ```bash
-# Check webhook status
-curl "https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo"
+# Basic health check
+curl https://your-domain.com/health
 
-# Reset webhook  
-curl -X POST "https://api.telegram.org/bot{BOT_TOKEN}/setWebhook" \
-     -d "url=https://yourapp.onrender.com/webhook/{TOKEN_SUFFIX}"
-```
-
-**Files not downloading**
-```bash
-# Check file exists
-curl "https://yourapp.onrender.com/api/file/{unique_code}"
-
-# Test direct download
-curl -I "https://yourapp.onrender.com/api/dl/{file_id}?code={code}"
-```
-
-**Admin panel not loading**
-- Verify `WEB_ADMIN_SECRET` environment variable
-- Check browser console for JavaScript errors
-- Ensure admin credentials are correct
-
-**Database connection issues**
-- Verify MongoDB Atlas IP whitelist includes `0.0.0.0/0`
-- Check connection string format
-- Test connection from MongoDB Compass
-
-### Performance Issues
-
-**High memory usage**
-- Reduce `maxPoolSize` in database connection
-- Enable file streaming for large uploads
-- Monitor file upload sizes
-
-**Slow response times**  
-- Enable Cloudflare Worker caching
-- Optimize database queries with indexes
-- Use CDN for static assets
-
----
-
-## 📚 API Response Examples
-
-### File Upload Response
-```json
+# Response
 {
-  "success": true,
-  "file_id": "abc123def456",
-  "unique_code": "xY9kL2mN8pQ4rT6vW1zA3bC5dE7fG0hJ",
-  "file_name": "document.pdf", 
-  "file_size": 1048576,
-  "urls": {
-    "cloudflare": "https://filetolinkv5.username.workers.dev/dl/abc123def456?code=xY9kL2mN...",
-    "render": "https://filetolinkv5.onrender.com/api/dl/abc123def456?code=xY9kL2mN...",
-    "bot": "https://t.me/your_bot?start=xY9kL2mN8pQ4rT6vW1zA3bC5dE7fG0hJ"
-  },
-  "upload_time": "2024-01-15T10:30:00Z"
-}
-```
-
-### System Stats Response  
-```json
-{
-  "files": {
-    "total": 15420,
-    "deleted": 89,
-    "recent_uploads": 245
-  },
-  "users": {
-    "total": 3456,  
-    "blocked": 12,
-    "recent_active": 892
-  },
-  "storage": {
-    "total_bytes": 52843274240,
-    "total_mb": 50400.5,
-    "total_gb": 49.22
-  },
-  "recent_activity": {
-    "uploads_24h": 245,
-    "downloads_24h": 1337
+  "status": "healthy",
+  "services": {
+    "mongodb": "healthy",
+    "redis": "healthy", 
+    "pyrogram": "healthy"
   }
 }
 ```
 
----
+### Key Metrics
+
+- Total files and storage usage
+- Download statistics
+- User engagement
+- Cache hit rates
+- System performance
+
+## 🔄 Configuration Options
+
+### Redis Settings
+
+```python
+REDIS_TTL=300           # Cache timeout in seconds
+REDIS_URL=redis://...   # Redis connection string
+```
+
+### Performance Tuning
+
+```python
+MAX_WORKERS=4           # Gunicorn worker processes
+WORKER_TIMEOUT=120      # Request timeout in seconds
+RATE_LIMIT_PER_MINUTE=60 # API rate limiting
+```
+
+### Telegram Settings
+
+```python
+PRIVATE_CHANNEL_ID=-1001234567890  # Private channel for file storage
+BOT_USERNAME=your_bot_username     # Bot username for links
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **Bot not responding**
+   - Check API_ID and API_HASH
+   - Verify BOT_TOKEN is valid
+   - Ensure bot has message permissions
+
+2. **File upload failures**
+   - Check PRIVATE_CHANNEL_ID format
+   - Verify bot is admin in channel
+   - Check MongoDB connection
+
+3. **Download issues**
+   - Verify Redis connection
+   - Check file exists in database
+   - Validate unique codes
+
+4. **Admin panel login fails**
+   - Check ADMIN_USERNAME and ADMIN_PASSWORD
+   - Verify SECRET_KEY length (min 32 chars)
+
+### Logs and Debugging
+
+```bash
+# Check application logs
+tail -f your-log-file.log
+
+# Test Redis connection
+redis-cli ping
+
+# Test MongoDB connection
+mongosh "your-connection-string" --eval "db.adminCommand('ping')"
+```
+
+## 🔄 Updates and Maintenance
+
+### Regular Maintenance Tasks
+
+1. **Monitor storage usage** in Telegram and MongoDB
+2. **Check Redis memory** usage and clear cache if needed
+3. **Review logs** for errors and performance issues
+4. **Update dependencies** regularly
+
+### Backup Strategy
+
+- MongoDB: Use Atlas backup or mongodump
+- Redis: Regular RDB/AOF backups
+- Configuration: Version control for .env
 
 ## 🤝 Contributing
 
-### Development Setup
+We welcome contributions! Please see our contributing guidelines:
+
 1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Install dependencies: `pip install -r requirements.txt`  
-4. Make changes and test locally
-5. Commit changes: `git commit -m 'Add amazing feature'`
-6. Push to branch: `git push origin feature/amazing-feature`
-7. Open Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-### Code Style
-- Follow PEP 8 for Python code
-- Use async/await for all I/O operations
-- Add type hints for function parameters
-- Document functions with docstrings
-- Use meaningful variable names
+### Development Setup
 
----
+```bash
+# Install development dependencies
+pip install -r requirements.txt
+
+# Run tests (if available)
+pytest
+
+# Code formatting
+black .
+isort .
+```
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
----
-
 ## 🙏 Acknowledgments
 
-- **FastAPI** - Modern, fast web framework for Python
-- **python-telegram-bot** - Telegram Bot API wrapper
-- **Motor** - Async MongoDB driver for Python  
-- **Cloudflare Workers** - Edge computing platform
-- **Render.com** - Cloud application platform
-- **Chart.js** - Beautiful charts for the web
-
----
+- **Telegram** for the robust MTProto protocol
+- **FastAPI** team for the excellent web framework
+- **Pyrogram** for seamless Telegram integration
+- **Render.com** for reliable hosting
+- **Cloudflare** for CDN services
 
 ## 📞 Support
 
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/yourusername/filetolinkv5/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/yourusername/filetolinkv5/discussions)
-- 📧 **Email**: support@yourcompany.com
-- 💬 **Telegram**: [@YourSupportBot](https://t.me/YourSupportBot)
+If you need help:
+
+1. Check the [troubleshooting](#troubleshooting) section
+2. Review existing [GitHub issues](https://github.com/yourusername/filetolink-v8/issues)
+3. Create a new issue with detailed information
+
+## 🚀 Future Enhancements
+
+- [ ] User authentication system
+- [ ] File expiration dates
+- [ ] Bandwidth limiting
+- [ ] Advanced analytics
+- [ ] Mobile app
+- [ ] Browser extensions
+- [ ] API rate limiting per user
+- [ ] Webhook notifications
 
 ---
 
-**🚀 Ready to deploy? Start with the [Quick Setup Guide](#installation--setup)!**
+<div align="center">
+
+**Made with ❤️ by the FileToLink Team**
+
+[![GitHub stars](https://img.shields.io/github/stars/yourusername/filetolink-v8?style=social)](https://github.com/yourusername/filetolink-v8/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/yourusername/filetolink-v8?style=social)](https://github.com/yourusername/filetolink-v8/network/members)
+
+*If this project helps you, please give it a ⭐!*
+
+</div>
