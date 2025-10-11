@@ -1,60 +1,111 @@
-from motor.motor_asyncio import AsyncIOMotorClient
+# db.py
+import motor.motor_asyncio
+import redis.asyncio as redis
+from bson import ObjectId
+import json
 from config import settings
-import logging
 
-logger = logging.getLogger(__name__)
 
-class MongoDB:
-    client: AsyncIOMotorClient = None
-    database = None
+class JSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        return super().default(obj)
 
-mongodb = MongoDB()
 
-async def connect_to_mongo():
-    try:
-        if not settings.MONGODB_URI:
-            raise ValueError("MONGODB_URI is not set")
-            
-        mongodb.client = AsyncIOMotorClient(
-            settings.MONGODB_URI,
-            serverSelectionTimeoutMS=10000,
-            connectTimeoutMS=10000,
-            socketTimeoutMS=10000,
-            maxPoolSize=50,
-            minPoolSize=10
-        )
-        
-        # Test connection
-        await mongodb.client.admin.command('ping')
-        mongodb.database = mongodb.client[settings.DATABASE_NAME]
-        
-        # Create indexes
-        await mongodb.database.files.create_index("file_id", unique=True)
-        await mongodb.database.files.create_index("unique_code", unique=True)
-        await mongodb.database.files.create_index("uploader_id")
-        await mongodb.database.files.create_index("upload_time")
-        
-        # Optional TTL index (30 days)
+class Database:
+    def __init__(self):
+        self.client = None
+        self.db = None
+        self.redis_client = None
+        self.json_encoder = JSONEncoder()
+    
+    async def connect(self):
+        """Connect to MongoDB and Redis"""
         try:
-            await mongodb.database.files.create_index(
-                [("upload_time", 1)], 
-                expireAfterSeconds=86400 * 30
+            # Connect to MongoDB
+            self.client = motor.motor_asyncio.AsyncIOMotorClient(
+                settings.DATABASE_URI,
+                serverSelectionTimeoutMS=5000,
+                maxPoolSize=100,
+                minPoolSize=10
             )
+            self.db = self.client[settings.DATABASE_NAME]
+            
+            # Test MongoDB connection
+            await self.client.admin.command('ping')
+            print("✅ Connected to MongoDB")
+            
+            # Create indexes
+            await self.db.files.create_index("unique_code", unique=True)
+            await self.db.files.create_index("file_id", unique=True)
+            await self.db.files.create_index("upload_date")
+            await self.db.files.create_index("user_id")
+            await self.db.files.create_index([("file_name", "text")])
+            
+            # Connect to Redis
+            redis_kwargs = {
+                'url': settings.REDIS_URL,
+                'decode_responses': True,
+                'socket_connect_timeout': 5,
+                'socket_timeout': 5
+            }
+            if settings.REDIS_PASSWORD:
+                redis_kwargs['password'] = settings.REDIS_PASSWORD
+                
+            self.redis_client = redis.Redis(**redis_kwargs)
+            
+            # Test Redis connection
+            await self.redis_client.ping()
+            print("✅ Connected to Redis")
+            
         except Exception as e:
-            logger.warning(f"TTL index creation warning: {e}")
-        
-        await mongodb.database.users.create_index("user_id", unique=True)
-        
-        logger.info("Connected to MongoDB successfully")
-        
-    except Exception as e:
-        logger.error(f"Failed to connect to MongoDB: {e}")
-        raise
+            print(f"❌ Database connection error: {e}")
+            raise
+    
+    async def close(self):
+        """Close database connections"""
+        if self.client:
+            self.client.close()
+        if self.redis_client:
+            await self.redis_client.close()
+    
+    def get_collection(self, name: str):
+        """Get a collection from database"""
+        return self.db[name]
+    
+    async def cache_get(self, key: str):
+        """Get value from Redis cache"""
+        try:
+            return await self.redis_client.get(key)
+        except Exception as e:
+            print(f"Redis get error: {e}")
+            return None
+    
+    async def cache_set(self, key: str, value: str, ttl: int = None):
+        """Set value in Redis cache"""
+        try:
+            if ttl is None:
+                ttl = settings.REDIS_TTL
+            await self.redis_client.setex(key, ttl, value)
+        except Exception as e:
+            print(f"Redis set error: {e}")
+    
+    async def cache_delete(self, key: str):
+        """Delete key from Redis cache"""
+        try:
+            await self.redis_client.delete(key)
+        except Exception as e:
+            print(f"Redis delete error: {e}")
+    
+    async def cache_exists(self, key: str):
+        """Check if key exists in Redis cache"""
+        try:
+            return await self.redis_client.exists(key) > 0
+        except Exception as e:
+            print(f"Redis exists error: {e}")
+            return False
 
-async def close_mongo_connection():
-    if mongodb.client:
-        mongodb.client.close()
-        logger.info("MongoDB connection closed")
 
-def get_database():
-    return mongodb.database
+# Global database instance
+database = Database()
