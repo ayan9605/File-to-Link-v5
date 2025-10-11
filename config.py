@@ -1,10 +1,10 @@
 # config.py
+
 import os
 from typing import Optional
 
 from pydantic_settings import BaseSettings  # ✅ moved here in Pydantic v2
 from pydantic import field_validator        # ✅ updated import (replaces validator in v2)
-
 
 class Settings(BaseSettings):
     # Telegram Configuration
@@ -51,10 +51,15 @@ class Settings(BaseSettings):
             raise ValueError('REDIS_TTL must be at least 60 seconds')
         return v
 
+    @field_validator('PRIVATE_CHANNEL_ID')
+    def validate_private_channel_id(cls, v):
+        if not str(v).startswith('-100'):
+            raise ValueError('PRIVATE_CHANNEL_ID must be a valid Telegram supergroup/channel ID starting with -100')
+        return v
+
     class Config:
         env_file = ".env"
         case_sensitive = True
-
 
 # Global settings instance
 settings = Settings()
