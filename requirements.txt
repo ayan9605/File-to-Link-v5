@@ -16,3 +16,4 @@ slowapi
 jinja2
 uvloop
 httptools
+pydantic-settings
