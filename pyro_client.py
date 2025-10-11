@@ -70,18 +70,35 @@ async def process_file_upload(message: Message, processing_msg: Message):
         file_id = str(message.id)
         unique_code = generate_unique_code()
         
-        # Forward file to private channel
+        # Forward file to private channel with proper peer resolution
         try:
-            forwarded_msg = await message.forward(settings.PRIVATE_CHANNEL_ID)
+            # Resolve the channel to ensure valid peer
+            try:
+                channel_chat = await pyro_client.get_chat(settings.PRIVATE_CHANNEL_ID)
+            except Exception as e:
+                await processing_msg.edit_text("❌ Error: Cannot resolve channel. Bot may not have access.")
+                print(f"Failed to resolve channel chat: {e}")
+                return
+            
+            # Now forward using the resolved chat
+            forwarded_msg = await message.forward(channel_chat.id)
             channel_message_id = forwarded_msg.id
-        except (ChannelInvalid, ChannelPrivate, ChatWriteForbidden) as e:
-            await processing_msg.edit_text("❌ Error: Cannot forward to private channel. Please check channel configuration.")
-            print(f"Channel forwarding error: {e}")
+        except ChannelInvalid:
+            await processing_msg.edit_text("❌ Error: Invalid channel. Please check the channel ID.")
+            print("Channel forwarding error: ChannelInvalid")
+            return
+        except ChannelPrivate:
+            await processing_msg.edit_text("❌ Error: Bot does not have access to the private channel.")
+            print("Channel forwarding error: ChannelPrivate")
+            return
+        except ChatWriteForbidden:
+            await processing_msg.edit_text("❌ Error: Bot cannot send messages in this channel.")
+            print("Channel forwarding error: ChatWriteForbidden")
             return
         except FloodWait as e:
             await processing_msg.edit_text(f"⚠️ Rate limited. Please wait {e.x} seconds.")
             await asyncio.sleep(e.x)
-            # Retry forwarding
+            # Retry after flood wait
             forwarded_msg = await message.forward(settings.PRIVATE_CHANNEL_ID)
             channel_message_id = forwarded_msg.id
         
