@@ -5,8 +5,8 @@ from datetime import datetime
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.errors import (
-    FloodWait, ChannelInvalid, ChannelPrivate, 
-    ChatWriteForbidden, MessageIdInvalid
+    FloodWait, ChannelInvalid, ChannelPrivate,
+    ChatWriteForbidden, MessageIdInvalid, PeerIdInvalid
 )
 import secrets
 import string
@@ -20,9 +20,9 @@ from utils.helpers import generate_links, format_file_size
 pyro_client = None
 
 async def start_pyro_client():
-    """Initialize and start the Pyrogram client"""
+    """Initialize and start the Pyrogram client with early channel resolution"""
     global pyro_client
-    
+
     try:
         pyro_client = Client(
             "filetolink_bot",
@@ -32,18 +32,25 @@ async def start_pyro_client():
             workers=100,
             sleep_threshold=60
         )
-        
-        # Register handlers
-        register_handlers(pyro_client)
-        
+
         # Start the client
         await pyro_client.start()
         print("✅ Pyrogram client started successfully")
-        
+
+        # Attempt to resolve the private channel early to warm up peer cache
+        try:
+            chat = await pyro_client.get_chat(settings.PRIVATE_CHANNEL_ID)
+            print(f"📌 Channel resolved at startup: {chat.title} ({chat.id})")
+        except Exception as e:
+            print(f"⚠️ Could not resolve channel at startup: {e}. Proceeding with fallback logic.")
+
+        # Register handlers
+        register_handlers(pyro_client)
+
         # Get bot info
         bot_me = await pyro_client.get_me()
         print(f"🤖 Bot @{bot_me.username} is ready!")
-        
+
     except Exception as e:
         print(f"❌ Failed to start Pyrogram client: {e}")
         raise
@@ -65,26 +72,31 @@ async def process_file_upload(message: Message, processing_msg: Message):
     try:
         user_id = message.from_user.id
         user_name = message.from_user.first_name
-        
+
         # Generate unique identifiers
         file_id = str(message.id)
         unique_code = generate_unique_code()
-        
-        # Forward file to private channel with proper peer resolution
+
+        # Forward file to private channel with fallback
         try:
-            # Resolve the channel to ensure valid peer
+            # First, try to resolve the chat using get_chat
             try:
                 channel_chat = await pyro_client.get_chat(settings.PRIVATE_CHANNEL_ID)
+                forward_dest = channel_chat.id
+                print(f"🎯 Forwarding to resolved channel: {channel_chat.title}")
+            except (PeerIdInvalid, ChannelInvalid, ChannelPrivate, ChatWriteForbidden) as e:
+                print(f"⚠️ Chat resolution failed: {e}. Falling back to raw channel ID.")
+                forward_dest = settings.PRIVATE_CHANNEL_ID  # Use raw ID as fallback
             except Exception as e:
-                await processing_msg.edit_text("❌ Error: Cannot resolve channel. Bot may not have access.")
-                print(f"Failed to resolve channel chat: {e}")
-                return
-            
-            # Now forward using the resolved chat
-            forwarded_msg = await message.forward(channel_chat.id)
+                print(f"⚠️ Unexpected error during chat resolution: {e}. Using raw ID.")
+                forward_dest = settings.PRIVATE_CHANNEL_ID
+
+            # Perform forwarding
+            forwarded_msg = await message.forward(forward_dest)
             channel_message_id = forwarded_msg.id
+
         except ChannelInvalid:
-            await processing_msg.edit_text("❌ Error: Invalid channel. Please check the channel ID.")
+            await processing_msg.edit_text("❌ Error: Invalid or deleted channel. Please check the channel ID.")
             print("Channel forwarding error: ChannelInvalid")
             return
         except ChannelPrivate:
@@ -96,16 +108,21 @@ async def process_file_upload(message: Message, processing_msg: Message):
             print("Channel forwarding error: ChatWriteForbidden")
             return
         except FloodWait as e:
-            await processing_msg.edit_text(f"⚠️ Rate limited. Please wait {e.x} seconds.")
-            await asyncio.sleep(e.x)
-            # Retry after flood wait
+            wait_time = e.value if hasattr(e, 'value') else e.x
+            await processing_msg.edit_text(f"⚠️ Rate limited. Please wait {wait_time} seconds.")
+            await asyncio.sleep(wait_time)
+            # Retry forwarding with fallback
             forwarded_msg = await message.forward(settings.PRIVATE_CHANNEL_ID)
             channel_message_id = forwarded_msg.id
-        
+        except Exception as e:
+            await processing_msg.edit_text(f"❌ Unexpected error during forwarding: {str(e)}")
+            print(f"Error in forwarding: {e}")
+            return
+
         # Get file information
         file = None
         file_type = "unknown"
-        
+
         if message.document:
             file = message.document
             file_type = "document"
@@ -118,11 +135,11 @@ async def process_file_upload(message: Message, processing_msg: Message):
         elif message.photo:
             file = message.photo
             file_type = "photo"
-        
+
         file_name = getattr(file, "file_name", "Unknown") if file else "Unknown"
         file_size = getattr(file, "file_size", 0) if file else 0
         mime_type = getattr(file, "mime_type", "application/octet-stream") if file else "application/octet-stream"
-        
+
         # Prepare file metadata
         file_data = {
             "file_id": file_id,
@@ -139,24 +156,24 @@ async def process_file_upload(message: Message, processing_msg: Message):
             "download_count": 0,
             "last_downloaded": None
         }
-        
+
         # Save to database
         try:
             files_collection = database.get_collection("files")
             await files_collection.insert_one(file_data)
-            
+
             # Clear any cached data for this file
             cache_key = f"file:{file_id}:{unique_code}"
             await database.cache_delete(cache_key)
-            
+
         except Exception as e:
             await processing_msg.edit_text("❌ Error saving file metadata to database.")
             print(f"Database error: {e}")
             return
-        
+
         # Generate download links
         links = generate_links(file_id, unique_code)
-        
+
         # Send success message to user
         response_text = f"""
 ✅ **File Uploaded Successfully!**
@@ -172,9 +189,9 @@ async def process_file_upload(message: Message, processing_msg: Message):
 
 💡 *You can use any of these links to download your file.*
         """
-        
+
         await processing_msg.edit_text(response_text, disable_web_page_preview=True)
-        
+
     except Exception as e:
         print(f"Error in background file processing: {e}")
         try:
@@ -184,7 +201,7 @@ async def process_file_upload(message: Message, processing_msg: Message):
 
 def register_handlers(client: Client):
     """Register all message handlers"""
-    
+
     @client.on_message(filters.document | filters.video | filters.audio | filters.photo)
     async def handle_file_upload(client: Client, message: Message):
         """Handle file uploads from users with background processing"""
@@ -192,13 +209,13 @@ def register_handlers(client: Client):
             # Check if message is from a user (not channel/group)
             if not message.from_user:
                 return
-            
+
             # Send immediate processing message
             processing_msg = await message.reply_text("⏳ Processing your file...")
-            
+
             # Start background task for file processing
             asyncio.create_task(process_file_upload(message, processing_msg))
-            
+
         except Exception as e:
             print(f"Error handling file upload: {e}")
             try:
@@ -212,11 +229,11 @@ def register_handlers(client: Client):
         try:
             if len(message.command) > 1:
                 unique_code = message.command[1]
-                
+
                 # Find file by unique code
                 files_collection = database.get_collection("files")
                 file_data = await files_collection.find_one({"unique_code": unique_code})
-                
+
                 if file_data:
                     # Update download stats
                     await files_collection.update_one(
@@ -226,11 +243,11 @@ def register_handlers(client: Client):
                             "$set": {"last_downloaded": datetime.utcnow()}
                         }
                     )
-                    
+
                     # Clear cache for this file
                     cache_key = f"file:{file_data['file_id']}:{unique_code}"
                     await database.cache_delete(cache_key)
-                    
+
                     # Send file to user
                     try:
                         await client.copy_message(
@@ -239,7 +256,8 @@ def register_handlers(client: Client):
                             message_id=file_data["message_id"]
                         )
                     except FloodWait as e:
-                        await message.reply_text(f"⚠️ Please wait {e.x} seconds and try again.")
+                        wait_time = e.value if hasattr(e, 'value') else e.x
+                        await message.reply_text(f"⚠️ Please wait {wait_time} seconds and try again.")
                     except Exception as e:
                         await message.reply_text("❌ Error sending file. Please try using the direct download links.")
                 else:
@@ -264,7 +282,7 @@ def register_handlers(client: Client):
 🔧 **Ready to upload!** Send me a file now.
                 """
                 await message.reply_text(welcome_text)
-                
+
         except Exception as e:
             print(f"Error in start handler: {e}")
             await message.reply_text("❌ An error occurred. Please try again.")
@@ -274,12 +292,12 @@ def register_handlers(client: Client):
         """Show user statistics"""
         try:
             user_id = message.from_user.id
-            
+
             files_collection = database.get_collection("files")
-            
+
             # Get user's file stats
             user_files = await files_collection.count_documents({"user_id": user_id})
-            
+
             # Get total downloads for user
             pipeline = [
                 {"$match": {"user_id": user_id}},
@@ -287,7 +305,7 @@ def register_handlers(client: Client):
             ]
             result = await files_collection.aggregate(pipeline).to_list(length=1)
             total_downloads = result[0]["total_downloads"] if result else 0
-            
+
             stats_text = f"""
 📊 **Your Statistics**
 
@@ -297,9 +315,9 @@ def register_handlers(client: Client):
 
 💡 Keep uploading files!
             """
-            
+
             await message.reply_text(stats_text)
-            
+
         except Exception as e:
             print(f"Error in stats handler: {e}")
             await message.reply_text("❌ Error retrieving statistics.")
