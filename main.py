@@ -1,178 +1,153 @@
-from fastapi import FastAPI, Request, HTTPException, Response
-from fastapi.middleware.cors import CORSMiddleware
+# main.py
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import JSONResponse
-from slowapi import _rate_limit_exceeded_handler
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+import uvicorn
 import time
-import logging
-import os
-from contextlib import asynccontextmanager
+import asyncio
 
 from config import settings
-from db import connect_to_mongo, close_mongo_connection
-from utils.helpers import limiter
-from routes import file_routes, admin_routes
-from bot import telegram_bot
+from db import database
+from routes.file_routes import router as file_router
+from routes.admin_routes import router as admin_router
+from pyro_client import start_pyro_client, stop_pyro_client
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    try:
-        await connect_to_mongo()
-        logger.info("MongoDB connected successfully")
-    except Exception as e:
-        logger.error(f"MongoDB connection failed: {e}")
-        # Don't raise, allow app to start without DB for health checks
-    
-    try:
-        if settings.TELEGRAM_BOT_TOKEN:
-            await telegram_bot.initialize()
-            
-            # Set webhook in production
-            if settings.RENDER_URL and settings.RENDER_URL != "http://localhost:8000":
-                await telegram_bot.set_webhook(settings.RENDER_URL)
-            logger.info("Telegram bot initialized successfully")
-        else:
-            logger.warning("No Telegram bot token provided, bot features disabled")
-    except Exception as e:
-        logger.error(f"Telegram bot initialization failed: {e}")
-    
-    logger.info("Application started successfully")
-    yield
-    
-    # Shutdown
-    await close_mongo_connection()
-    logger.info("Application shutdown")
-
+# Initialize FastAPI app
 app = FastAPI(
-    title="FileToLink System", 
-    version="5.0",
-    lifespan=lifespan
+    title="FileToLink System v8.0",
+    description="High-performance file sharing using Telegram as backend with Redis caching",
+    version="8.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
-# Create necessary directories
-os.makedirs("uploads", exist_ok=True)
-os.makedirs("templates", exist_ok=True)
-os.makedirs("static", exist_ok=True)
-
-# Mount static files and templates
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
-# Add rate limiting
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
-# Add more specific CORS settings
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"]
 )
 
-# --- CORRECTED ROUTING ---
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
 # Include routers
-app.include_router(admin_routes.router, prefix="/admin")
-app.include_router(file_routes.router, prefix="/api/v1") # For API-specific routes
-app.include_router(file_routes.router, tags=["Direct Downloads"]) # For direct /dl links
+app.include_router(file_router)
+app.include_router(admin_router, prefix="/admin/api")
 
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    return response
-
-@app.post("/webhook")
-async def telegram_webhook(request: Request):
-    """Handle Telegram webhook"""
-    if not settings.TELEGRAM_BOT_TOKEN:
-        return JSONResponse(
-            status_code=501,
-            content={"status": "error", "message": "Telegram bot not configured"}
-        )
-    
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
     try:
-        json_data = await request.json()
+        # Connect to database and Redis
+        await database.connect()
         
-        from telegram import Update
-        update = Update.de_json(json_data, telegram_bot.application.bot)
+        # Start Pyrogram client
+        await start_pyro_client()
         
-        await telegram_bot.application.process_update(update)
-        return {"status": "ok"}
+        print("✅ FileToLink System v8.0 started successfully")
+        
     except Exception as e:
-        logger.error(f"Webhook error: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": str(e)}
-        )
+        print(f"❌ Startup error: {e}")
+        raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    await stop_pyro_client()
+    await database.close()
+    print("✅ FileToLink system shutdown complete")
 
 @app.get("/")
-async def root():
+@limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
+async def root(request: Request):
+    """Health check endpoint"""
     return {
-        "message": "FileToLink System v5.0", 
         "status": "active",
-        "features": [
-            "Triple link generation",
-            "Telegram bot integration", 
-            "Admin dashboard",
-            "File streaming",
-            "Rate limiting"
-        ],
-        "endpoints": {
-            "upload": "/api/v1/upload",
-            "download_api": "/api/v1/dl/{file_id}",
-            "download_direct": "/dl/{file_id}",
-            "random": "/api/v1/random",
-            "admin": "/admin",
-            "health": "/health"
-        }
+        "service": "FileToLink System",
+        "version": "8.0.0",
+        "timestamp": time.time()
     }
 
 @app.get("/health")
 async def health_check():
-    from db import mongodb
-    db_status = "connected" if mongodb.client else "disconnected"
-    bot_status = "connected" if telegram_bot.application else "disconnected"
-    
-    return {
-        "status": "healthy", 
+    """Advanced health check that verifies all services"""
+    health_status = {
+        "status": "healthy",
         "timestamp": time.time(),
-        "database": db_status,
-        "telegram_bot": bot_status,
-        "version": "5.0"
+        "services": {}
     }
+    
+    try:
+        # Check MongoDB
+        await database.client.admin.command('ping')
+        health_status["services"]["mongodb"] = "healthy"
+    except Exception as e:
+        health_status["services"]["mongodb"] = f"unhealthy: {str(e)}"
+        health_status["status"] = "degraded"
+    
+    try:
+        # Check Redis
+        await database.redis_client.ping()
+        health_status["services"]["redis"] = "healthy"
+    except Exception as e:
+        health_status["services"]["redis"] = f"unhealthy: {str(e)}"
+        health_status["status"] = "degraded"
+    
+    try:
+        # Check Pyrogram client
+        from pyro_client import get_pyro_client
+        client = await get_pyro_client()
+        if client and client.is_connected:
+            health_status["services"]["pyrogram"] = "healthy"
+        else:
+            health_status["services"]["pyrogram"] = "unhealthy: client not connected"
+            health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["services"]["pyrogram"] = f"unhealthy: {str(e)}"
+        health_status["status"] = "degraded"
+    
+    status_code = 200 if health_status["status"] == "healthy" else 503
+    return JSONResponse(content=health_status, status_code=status_code)
 
-@app.get("/test-routes")
-async def test_routes():
-    """Test all download routes"""
-    return {
-        "api_route": "/api/v1/dl/{file_id}?code={code}",
-        "direct_route": "/dl/{file_id}?code={code}",
-        "cdn_route": f"{settings.CLOUDFLARE_WORKER_URL}/dl/{{file_id}}?code={{code}}",
-        "render_route": f"{settings.RENDER_URL}/dl/{{file_id}}?code={{code}}",
-        "bot_route": f"https://t.me/{settings.BOT_USERNAME}?start={{code}}"
-    }
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    """Serve admin panel"""
+    return templates.TemplateResponse("admin.html", {"request": request})
+
+# Error handlers
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=404,
+        content={"error": "Resource not found"}
+    )
+
+@app.exception_handler(500)
+async def internal_error_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error"}
+    )
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(
-        "main:app", 
-        host="0.0.0.0", 
-        port=8000, 
-        reload=True,
-        log_level="info"
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False
     )
